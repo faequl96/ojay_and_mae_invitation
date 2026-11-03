@@ -1,0 +1,35 @@
+name: ojay_and_mae_invitation
+description: "Undangan Pernikahan Ojay & Mae (19.12.2026)"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^3.12.0
+  cloud_firestore: ^5.6.5
+  flutter_web_plugins:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: false
+  assets:
+    - assets/images/ojay_mae_cover.png
+  fonts:
+    - family: OutlawBlackletter
+      fonts:
+        - asset: assets/fonts/PirataOne-Regular.ttf
+    - family: WesternSlab
+      fonts:
+        - asset: assets/fonts/Rye-Regular.ttf
+    - family: HauntedSerif
+      fonts:
+        - asset: assets/fonts/IMFellDWPica-Regular.ttf

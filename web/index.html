@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+  <head>
+    <base href="$FLUTTER_BASE_HREF" />
+
+    <meta charset="UTF-8" />
+    <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
+    <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport" />
+    <meta name="description" content="In-Vite App" />
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
+    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp" />
+
+    <!-- iOS meta tags & icons -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="ojay_and_mae_invitation" />
+    <link rel="apple-touch-icon" href="icons/Icon-192.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="favicon.png" />
+
+    <title>iv_project_web_app</title>
+    <link rel="manifest" href="manifest.json" />
+
+    <style>
+      body { margin: 0; padding: 0; background-color: #ffffff; }
+
+      .logo {
+        width: 100px;
+        height: auto;
+        margin-bottom: 14px;
+      }
+      
+      .container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background-color: #fff;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+
+      .progress-container {
+        position: relative;
+        width: 260px; 
+        height: 20px; 
+        background-color: #d3f3ee;
+        border-radius: 20px;
+        overflow: hidden;
+        display: flex;
+        align-items: center; 
+        justify-content: center;
+      }
+
+      .progress-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0%;
+        height: 100%;
+        background-color: #09AB81;
+        transition: width 0.1s linear;
+        z-index: 2;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+      }
+
+      .progress-text-style {
+        position: absolute;
+        width: 260px;
+        margin: 0;
+        font-size: 11px;
+        font-family: sans-serif;
+        font-weight: 800;
+        text-align: center;
+        left: 0;
+        line-height: 20px; 
+      }
+
+      #progress_text_black {
+        color: #444444;
+        z-index: 1;
+      }
+
+      #progress_text_white {
+        color: #ffffff;
+        z-index: 3;
+      }
+
+      #status_text {
+        margin-top: 10px;
+        font-size: 14px;
+        color: #5b5b5b;
+        font-family: sans-serif;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    
+    <div id="loading_indicator" class="container">
+      <img src="assets/logos/in_vite_logo.png" alt="In-Vite Logo" class="logo">
+
+      <div class="progress-container">
+        <p id="progress_text_black" class="progress-text-style">0%</p>
+          
+        <div id="progress_bar" class="progress-fill">
+          <p id="progress_text_white" class="progress-text-style">0%</p>
+        </div>
+      </div>
+
+      <p id="status_text">Initializing...</p>
+    </div>
+
+    <script>
+      {{flutter_bootstrap_js}}
+    </script>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+name: Deploy Flutter Web to Vercel
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.9"
+          channel: "stable"
+          cache: true
+
+      - name: Check Flutter Version
+        run: flutter --version
+
+      - name: Installs Dependencies
+        run: flutter pub get
+
+      - name: Build Web
+        run: flutter build web --wasm --release --tree-shake-icons --no-pub
+
+      - name: Copy vercel.json to build folder
+        run: cp vercel.json build/web/
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
+          working-directory: ./build/web
+
+# VERCEL BUILD COMMAND = 'flutter/bin/flutter --version && flutter/bin/flutter build web --wasm --release';
+# VERCEL INSTALL COMMAND = 'git clone https://github.com/flutter/flutter.git -b 3.38.9 --depth 1';
