@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:js_interop';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ojay_and_mae_invitation/ojay_and_mae.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
@@ -28,9 +29,24 @@ void main() async {
 
   await _jsUpdateSplashProgress(80, 95, 50, 350).toDart;
 
-  // await Future.delayed(const Duration(seconds: 1));
+  preCacheAssetImages();
+  await Future.delayed(const Duration(seconds: 2));
 
   await _jsUpdateSplashProgress(95, 100, 150, 250).toDart;
 
   runApp(OjayMaeOutlawWeddingApp(rsvpController: rsvpController));
+}
+
+void preCacheAssetImages() {
+  final devicePixelRatio =
+      PlatformDispatcher.instance.views.first.devicePixelRatio;
+  final config = ImageConfiguration(devicePixelRatio: devicePixelRatio);
+
+  final List<ImageProvider> images = [
+    const AssetImage('assets/images/ojay_mae_cover.png'),
+  ];
+
+  for (var provider in images) {
+    provider.resolve(config);
+  }
 }
