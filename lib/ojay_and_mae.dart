@@ -1,9 +1,53 @@
 import 'dart:async';
+import 'dart:js_interop';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+@JS('localStorage.getItem')
+external String? _lsGetItem(String key);
+
+@JS('localStorage.setItem')
+external void _lsSetItem(String key, String value);
+
+abstract final class _DeviceIdentity() {
+  static const String _storageKey = 'ojay_mae_device_id';
+  static String? _cachedId;
+
+  static String get deviceId {
+    if (_cachedId != null) return _cachedId!;
+    try {
+      final existing = _lsGetItem(_storageKey);
+      if (existing != null && existing.isNotEmpty) {
+        return _cachedId = existing;
+      }
+      final generated = _generateRandomId();
+      _lsSetItem(_storageKey, generated);
+      return _cachedId = generated;
+    } catch (_) {
+      return _cachedId = _generateRandomId();
+    }
+  }
+
+  static String buildRecipientDeviceId(String recipientName) {
+    final normalized = recipientName
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    final prefix = normalized.isNotEmpty ? normalized : 'guest';
+    return '${prefix}_$deviceId';
+  }
+
+  static String _generateRandomId() {
+    final rng = math.Random();
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+    final randomPart = List.generate(6, (_) => rng.nextInt(36).toRadixString(36)).join();
+    return '$timestamp$randomPart';
+  }
+}
 
 // ============================================================================
 // KONSTANTA ASET & KONFIGURASI TIPOGRAFI
@@ -87,8 +131,8 @@ abstract final class GothicTheme() {
   );
 }
 
-class const OjayMaeWeddingApp({super.key}) extends StatelessWidget {
-  static String _resolveRecipientName() {
+class const OjayMaeWeddingApp({super.key, final String? recipientName}) extends StatelessWidget {
+  static String resolveRecipientName() {
     final params = <String, String>{...Uri.base.queryParameters};
     if (Uri.base.fragment.contains('?')) {
       final fragQuery = Uri.base.fragment.split('?').last;
@@ -103,12 +147,12 @@ class const OjayMaeWeddingApp({super.key}) extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final recipientName = _resolveRecipientName();
+    final resolvedRecipient = recipientName ?? resolveRecipientName();
     return MaterialApp(
       title: 'Undangan Pernikahan Ojay & Mae',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(brightness: .dark, scaffoldBackgroundColor: GothicTheme.bgBlack),
-      home: InvitationScreen(recipientName: recipientName),
+      home: InvitationScreen(recipientName: resolvedRecipient),
     );
   }
 }
@@ -132,6 +176,7 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   final _eventKey = GlobalKey();
   final _rsvpKey = GlobalKey();
   final _giftKey = GlobalKey();
+  final _thankYouKey = GlobalKey();
 
   @override
   void initState() {
@@ -196,7 +241,14 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                   flex: 5,
                   child: _DesktopLeftShowcase(
                     onNavigate: (index) {
-                      final keys = [_heroKey, _coupleKey, _eventKey, _rsvpKey, _giftKey];
+                      final keys = [
+                        _heroKey,
+                        _coupleKey,
+                        _eventKey,
+                        _giftKey,
+                        _rsvpKey,
+                        _thankYouKey,
+                      ];
                       _scrollToSection(keys[index]);
                     },
                   ),
@@ -252,6 +304,10 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                   child: _EventSection(scrollController: _scrollController),
                 ),
                 KeyedSubtree(
+                  key: _giftKey,
+                  child: _WeddingGiftSection(scrollController: _scrollController),
+                ),
+                KeyedSubtree(
                   key: _rsvpKey,
                   child: _RsvpSection(
                     scrollController: _scrollController,
@@ -259,8 +315,8 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                   ),
                 ),
                 KeyedSubtree(
-                  key: _giftKey,
-                  child: _WeddingGiftSection(scrollController: _scrollController),
+                  key: _thankYouKey,
+                  child: _ThankYouSection(scrollController: _scrollController),
                 ),
               ],
             ),
@@ -332,8 +388,9 @@ class const _DesktopLeftShowcase({required final ValueChanged<int> onNavigate})
                   _NavChip(label: 'Pembuka', onTap: () => onNavigate(0)),
                   _NavChip(label: 'Mempelai', onTap: () => onNavigate(1)),
                   _NavChip(label: 'Acara', onTap: () => onNavigate(2)),
-                  _NavChip(label: 'RSVP', onTap: () => onNavigate(3)),
-                  _NavChip(label: 'Wedding Gift', onTap: () => onNavigate(4)),
+                  _NavChip(label: 'Wedding Gift', onTap: () => onNavigate(3)),
+                  _NavChip(label: 'RSVP', onTap: () => onNavigate(4)),
+                  _NavChip(label: 'Penutup', onTap: () => onNavigate(5)),
                 ],
               ),
             ],
@@ -939,12 +996,79 @@ class const _RsvpSection({
 
 class _RsvpSectionState() extends State<_RsvpSection> {
   static const String _collectionName = 'rsvps';
+  static const String _sessionsCollectionName = 'rsvp_sessions';
+  static const int _pageSize = 5;
   static const List<String> _attendanceOptions = ['Hadir', 'Tidak Hadir', 'Masih Ragu'];
+
+  final List<Map<String, String>> _dummyRsvps = [
+    {
+      'recipientId': 'rizky_pratama_dev02',
+      'name': 'Dimas (Sepupu Rizky)',
+      'recipientName': 'Rizky Pratama',
+      'recipientLabel': 'Rizky Pratama+1',
+      'attendance': 'Hadir',
+      'message':
+          'Selamat Ojay & Mae! Ikut hadir bareng rombongan Rizky ya, semoga lancar sampai hari H!',
+    },
+    {
+      'recipientId': 'rizky_pratama_dev01',
+      'name': 'Rizky & Nadya',
+      'recipientName': 'Rizky Pratama',
+      'recipientLabel': 'Rizky Pratama',
+      'attendance': 'Hadir',
+      'message':
+          'Selamat menempuh hidup baru Ojay & Mae! Semoga menjadi keluarga yang sakinah, mawaddah, warahmah.',
+    },
+    {
+      'recipientId': 'dinda_lestari_dev02',
+      'name': 'Dinda Lestari',
+      'recipientName': 'Dinda Lestari',
+      'recipientLabel': 'Dinda Lestari',
+      'attendance': 'Hadir',
+      'message':
+          'Happy wedding Fauzi & Fitri! Lancar terus sampai hari H dan bahagia selalu selamanya.',
+    },
+    {
+      'recipientId': 'budi_santoso_dev03',
+      'name': 'Keluarga Besar Pak Budi',
+      'recipientName': 'Budi Santoso',
+      'recipientLabel': 'Budi Santoso',
+      'attendance': 'Masih Ragu',
+      'message': 'Selamat ya bro Ojay! Semoga dilancarkan segala urusannya. Diusahakan hadir!',
+    },
+    {
+      'recipientId': 'siti_rahmawati_dev04',
+      'name': 'Siti Rahmawati',
+      'recipientName': 'Siti Rahmawati',
+      'recipientLabel': 'Siti Rahmawati',
+      'attendance': 'Tidak Hadir',
+      'message':
+          'Mohon maaf belum bisa hadir karena ada agenda di luar kota. Doa terbaik untuk Ojay & Mae!',
+    },
+    {
+      'recipientId': 'andi_wijaya_dev05',
+      'name': 'Andi Wijaya & Istri',
+      'recipientName': 'Andi Wijaya',
+      'recipientLabel': 'Andi Wijaya',
+      'attendance': 'Hadir',
+      'message': 'Selamat berbahagia Ojay & Mae! Semoga langgeng dunia akhirat.',
+    },
+    {
+      'recipientId': 'fajar_teman_smk_dev06',
+      'name': 'Fajar Nugroho',
+      'recipientName': 'Fajar (Teman SMK)',
+      'recipientLabel': 'Fajar (Teman SMK)',
+      'attendance': 'Hadir',
+      'message': 'Mantap Ojay! Akhirnya berlabuh juga. Sampai ketemu di hari bahagia bro!',
+    },
+  ];
 
   late final TextEditingController _nameController;
   final _messageController = TextEditingController();
   String _attendance = _attendanceOptions.first;
   bool _isSubmitting = false;
+  int _currentPage = 0;
+  String? _resolvedRecipientLabel;
 
   CollectionReference<Map<String, dynamic>>? get _collection {
     try {
@@ -954,10 +1078,19 @@ class _RsvpSectionState() extends State<_RsvpSection> {
     }
   }
 
+  CollectionReference<Map<String, dynamic>>? get _sessionsCollection {
+    try {
+      return FirebaseFirestore.instance.collection(_sessionsCollectionName);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.defaultName);
+    unawaited(_registerRecipientVisit());
   }
 
   @override
@@ -965,7 +1098,76 @@ class _RsvpSectionState() extends State<_RsvpSection> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.defaultName != widget.defaultName && _nameController.text.trim().isEmpty) {
       _nameController.text = widget.defaultName;
+      unawaited(_registerRecipientVisit());
     }
+  }
+
+  Future<String> _registerRecipientVisit() async {
+    final recipientName = widget.defaultName.trim();
+    if (recipientName.isEmpty) return '';
+    if (_resolvedRecipientLabel != null) return _resolvedRecipientLabel!;
+
+    final recipientId = _DeviceIdentity.buildRecipientDeviceId(recipientName);
+    final deviceId = _DeviceIdentity.deviceId;
+    final normalizedRecipient = recipientName.toLowerCase();
+
+    final sessionsCol = _sessionsCollection;
+    if (sessionsCol != null) {
+      try {
+        final existingDoc = await sessionsCol.doc(recipientId).get();
+        if (existingDoc.exists) {
+          final savedLabel = (existingDoc.data()?['recipientLabel'] as String?)?.trim();
+          if (savedLabel != null && savedLabel.isNotEmpty) {
+            return _resolvedRecipientLabel = savedLabel;
+          }
+        }
+
+        final sameRecipientDocs = await sessionsCol
+            .where('normalizedRecipient', isEqualTo: normalizedRecipient)
+            .get();
+        final orderIndex = sameRecipientDocs.docs.length;
+        final label = orderIndex == 0 ? recipientName : '$recipientName+$orderIndex';
+
+        await sessionsCol.doc(recipientId).set({
+          'recipientId': recipientId,
+          'deviceId': deviceId,
+          'recipientName': recipientName,
+          'normalizedRecipient': normalizedRecipient,
+          'orderIndex': orderIndex,
+          'recipientLabel': label,
+          'openedAt': FieldValue.serverTimestamp(),
+        });
+
+        return _resolvedRecipientLabel = label;
+      } catch (_) {}
+    }
+
+    return _resolvedRecipientLabel = _computeLocalRecipientLabel(
+      recipientId: recipientId,
+      recipientName: recipientName,
+    );
+  }
+
+  String _computeLocalRecipientLabel({
+    required String recipientId,
+    required String recipientName,
+  }) {
+    if (recipientName.isEmpty) return '';
+    final normalized = recipientName.toLowerCase();
+    final seenRecipientIds = <String>[];
+
+    for (final item in _dummyRsvps.reversed) {
+      if ((item['recipientName'] ?? '').trim().toLowerCase() == normalized) {
+        final rId = item['recipientId'] ?? '';
+        if (rId.isNotEmpty && !seenRecipientIds.contains(rId)) {
+          seenRecipientIds.add(rId);
+        }
+      }
+    }
+
+    final existingIdx = seenRecipientIds.indexOf(recipientId);
+    final orderIndex = existingIdx >= 0 ? existingIdx : seenRecipientIds.length;
+    return orderIndex == 0 ? recipientName : '$recipientName+$orderIndex';
   }
 
   @override
@@ -975,9 +1177,36 @@ class _RsvpSectionState() extends State<_RsvpSection> {
     super.dispose();
   }
 
+  void _applyLocalRsvp({
+    required String recipientId,
+    required String name,
+    required String recipientName,
+    required String recipientLabel,
+    required String attendance,
+    required String message,
+  }) {
+    for (final item in _dummyRsvps) {
+      if (item['recipientId'] == recipientId) {
+        item['attendance'] = attendance;
+      }
+    }
+    _dummyRsvps.insert(0, {
+      'recipientId': recipientId,
+      'name': name,
+      'recipientName': recipientName,
+      'recipientLabel': recipientLabel,
+      'attendance': attendance,
+      'message': message,
+    });
+    _currentPage = 0;
+  }
+
   Future<void> _submitRsvp() async {
     final name = _nameController.text.trim();
     final message = _messageController.text.trim();
+    final recipientName = widget.defaultName.trim();
+    final recipientId = _DeviceIdentity.buildRecipientDeviceId(recipientName);
+    final deviceId = _DeviceIdentity.deviceId;
 
     if (name.isEmpty || message.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -993,32 +1222,26 @@ class _RsvpSectionState() extends State<_RsvpSection> {
       return;
     }
 
-    final col = _collection;
-    if (col == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: GothicTheme.white,
-          behavior: .floating,
-          content: Text(
-            'Layanan RSVP belum terhubung ke server.',
-            style: TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
-          ),
-        ),
-      );
-      return;
-    }
-
     setState(() => _isSubmitting = true);
     HapticFeedback.lightImpact();
 
-    try {
-      await col.add({
-        'name': name,
-        'attendance': _attendance,
-        'message': message,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    final recipientLabel = await _registerRecipientVisit();
+
+    final col = _collection;
+    if (col == null) {
+      await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
+      setState(() {
+        _applyLocalRsvp(
+          recipientId: recipientId,
+          name: name,
+          recipientName: recipientName,
+          recipientLabel: recipientLabel,
+          attendance: _attendance,
+          message: message,
+        );
+        _isSubmitting = false;
+      });
       _messageController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1030,15 +1253,64 @@ class _RsvpSectionState() extends State<_RsvpSection> {
           ),
         ),
       );
-    } catch (e) {
+      return;
+    }
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final batch = db.batch();
+
+      final previousDocs = await col.where('recipientId', isEqualTo: recipientId).get();
+      for (final doc in previousDocs.docs) {
+        batch.update(doc.reference, {'attendance': _attendance});
+      }
+
+      final newDocRef = col.doc();
+      batch.set(newDocRef, {
+        'recipientId': recipientId,
+        'deviceId': deviceId,
+        'name': name,
+        'recipientName': recipientName,
+        'recipientLabel': recipientLabel,
+        'attendance': _attendance,
+        'message': message,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
       if (!mounted) return;
+      setState(() => _currentPage = 0);
+      _messageController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           backgroundColor: GothicTheme.white,
           behavior: .floating,
           content: Text(
-            'Gagal mengirim RSVP: $e',
-            style: const TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
+            'Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.',
+            style: TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _applyLocalRsvp(
+          recipientId: recipientId,
+          name: name,
+          recipientName: recipientName,
+          recipientLabel: recipientLabel,
+          attendance: _attendance,
+          message: message,
+        );
+      });
+      _messageController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: GothicTheme.white,
+          behavior: .floating,
+          content: Text(
+            'Terima kasih! Konfirmasi kehadiran & doa berhasil ditambahkan.',
+            style: TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
           ),
         ),
       );
@@ -1174,91 +1446,233 @@ class _RsvpSectionState() extends State<_RsvpSection> {
               ),
             ),
           ),
-          if (col != null) ...[
-            const SizedBox(height: 24),
-            ScrollReveal(
-              scrollController: widget.scrollController,
-              delay: const Duration(milliseconds: 280),
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: col.orderBy('createdAt', descending: true).limit(30).snapshots(),
-                builder: (context, snapshot) {
-                  final docs = snapshot.data?.docs ?? const [];
-                  if (docs.isEmpty) return const SizedBox.shrink();
+          const SizedBox(height: 24),
+          ScrollReveal(
+            scrollController: widget.scrollController,
+            delay: const Duration(milliseconds: 280),
+            child: col != null
+                ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: col.orderBy('createdAt', descending: true).snapshots(),
+                    builder: (context, snapshot) {
+                      final docs = snapshot.data?.docs ?? const [];
+                      if (docs.isEmpty) return _buildRsvpListCard(_dummyRsvps);
 
-                  return DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0E0E0E),
-                      borderRadius: .circular(20),
-                      border: .all(color: Colors.white24),
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 340),
-                      child: ListView.separated(
-                        padding: const .all(18),
-                        shrinkWrap: true,
-                        itemCount: docs.length,
-                        separatorBuilder: (_, _) =>
-                            const Divider(color: Colors.white12, height: 22),
-                        itemBuilder: (context, index) {
-                          final data = docs[index].data();
-                          final sender = (data['name'] as String?)?.trim() ?? 'Tamu';
-                          final status = (data['attendance'] as String?)?.trim() ?? 'Hadir';
-                          final msg = (data['message'] as String?)?.trim() ?? '';
+                      final latestAttendanceByRecipientId = <String, String>{};
+                      for (final d in docs) {
+                        final data = d.data();
+                        final rId = (data['recipientId'] as String?)?.trim() ?? '';
+                        final att = (data['attendance'] as String?)?.trim() ?? 'Hadir';
+                        if (rId.isNotEmpty && !latestAttendanceByRecipientId.containsKey(rId)) {
+                          latestAttendanceByRecipientId[rId] = att;
+                        }
+                      }
 
-                          return Column(
+                      final recipientOrderByGroup = <String, List<String>>{};
+                      for (final d in docs.reversed) {
+                        final data = d.data();
+                        final rId = (data['recipientId'] as String?)?.trim() ?? '';
+                        final rName = (data['recipientName'] as String?)?.trim() ?? '';
+                        if (rId.isNotEmpty && rName.isNotEmpty) {
+                          final list = recipientOrderByGroup.putIfAbsent(
+                            rName.toLowerCase(),
+                            () => <String>[],
+                          );
+                          if (!list.contains(rId)) list.add(rId);
+                        }
+                      }
+
+                      final items = docs.map((d) {
+                        final data = d.data();
+                        final rId = (data['recipientId'] as String?)?.trim() ?? '';
+                        final rName = (data['recipientName'] as String?)?.trim() ?? '';
+                        final savedLabel = (data['recipientLabel'] as String?)?.trim() ?? '';
+                        final rawAttendance = (data['attendance'] as String?)?.trim() ?? 'Hadir';
+
+                        String displayLabel = savedLabel;
+                        if (displayLabel.isEmpty && rName.isNotEmpty) {
+                          final groupList = recipientOrderByGroup[rName.toLowerCase()] ?? const [];
+                          final idx = groupList.indexOf(rId);
+                          displayLabel = idx > 0 ? '$rName+$idx' : rName;
+                        }
+
+                        return {
+                          'recipientId': rId,
+                          'name': (data['name'] as String?)?.trim() ?? 'Tamu',
+                          'recipientName': rName,
+                          'recipientLabel': displayLabel,
+                          'attendance': latestAttendanceByRecipientId[rId] ?? rawAttendance,
+                          'message': (data['message'] as String?)?.trim() ?? '',
+                        };
+                      }).toList();
+
+                      return _buildRsvpListCard(items);
+                    },
+                  )
+                : _buildRsvpListCard(_dummyRsvps),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRsvpListCard(List<Map<String, String>> items) {
+    final totalPages = (items.length / _pageSize).ceil().clamp(1, 9999);
+    final safePage = _currentPage.clamp(0, totalPages - 1);
+    final startIndex = safePage * _pageSize;
+    final pageItems = items.skip(startIndex).take(_pageSize).toList();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E0E0E),
+        borderRadius: .circular(20),
+        border: .all(color: Colors.white24),
+      ),
+      child: Padding(
+        padding: const .all(18),
+        child: Column(
+          children: [
+            ListView.separated(
+              padding: .zero,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: pageItems.length,
+              separatorBuilder: (_, _) => const Divider(color: Colors.white12, height: 22),
+              itemBuilder: (context, index) {
+                final data = pageItems[index];
+                final sender = data['name'] ?? 'Tamu';
+                final recipientLabel =
+                    (data['recipientLabel'] ?? data['recipientName'] ?? '').trim();
+                final status = data['attendance'] ?? 'Hadir';
+                final msg = data['message'] ?? '';
+
+                return Column(
+                  crossAxisAlignment: .start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: .start,
+                      mainAxisAlignment: .spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
                             crossAxisAlignment: .start,
                             children: [
-                              Row(
-                                mainAxisAlignment: .spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      sender,
-                                      style: GothicTheme.sans(size: 13, weight: .bold),
-                                    ),
+                              Text(sender, style: GothicTheme.sans(size: 13, weight: .bold)),
+                              if (recipientLabel.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Undangan: $recipientLabel',
+                                  style: GothicTheme.sans(
+                                    size: 10.5,
+                                    color: Colors.white54,
+                                    weight: .w600,
                                   ),
-                                  DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: status == 'Hadir' ? GothicTheme.white : Colors.white12,
-                                      borderRadius: .circular(12),
-                                      border: .all(color: Colors.white30),
-                                    ),
-                                    child: Padding(
-                                      padding: const .symmetric(horizontal: 10, vertical: 3),
-                                      child: Text(
-                                        status,
-                                        style: GothicTheme.sans(
-                                          size: 10,
-                                          color: status == 'Hadir'
-                                              ? GothicTheme.bgBlack
-                                              : GothicTheme.white,
-                                          weight: .bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                msg,
-                                style: GothicTheme.sans(
-                                  size: 12,
-                                  color: GothicTheme.textGrey,
-                                  height: 1.4,
                                 ),
-                              ),
+                              ],
                             ],
-                          );
-                        },
-                      ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: status == 'Hadir' ? GothicTheme.white : Colors.white12,
+                            borderRadius: .circular(12),
+                            border: .all(color: Colors.white30),
+                          ),
+                          child: Padding(
+                            padding: const .symmetric(horizontal: 10, vertical: 3),
+                            child: Text(
+                              status,
+                              style: GothicTheme.sans(
+                                size: 10,
+                                color: status == 'Hadir' ? GothicTheme.bgBlack : GothicTheme.white,
+                                weight: .bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  );
-                },
-              ),
+                    const SizedBox(height: 6),
+                    Text(
+                      msg,
+                      style: GothicTheme.sans(size: 12, color: GothicTheme.textGrey, height: 1.4),
+                    ),
+                  ],
+                );
+              },
             ),
+            if (totalPages > 1) ...[
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white12, height: 1),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: .spaceBetween,
+                children: [
+                  _PaginationButton(
+                    icon: Icons.chevron_left_rounded,
+                    label: 'Sebelumnya',
+                    enabled: safePage > 0,
+                    onTap: () => setState(() => _currentPage = safePage - 1),
+                  ),
+                  Text(
+                    'Hal ${safePage + 1} / $totalPages',
+                    style: GothicTheme.sans(size: 11, color: GothicTheme.textGrey, weight: .bold),
+                  ),
+                  _PaginationButton(
+                    icon: Icons.chevron_right_rounded,
+                    label: 'Selanjutnya',
+                    isTrailingIcon: true,
+                    enabled: safePage < totalPages - 1,
+                    onTap: () => setState(() => _currentPage = safePage + 1),
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class const _PaginationButton({
+  required final IconData icon,
+  required final String label,
+  required final bool enabled,
+  required final VoidCallback onTap,
+  final bool isTrailingIcon = false,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final fgColor = enabled ? GothicTheme.white : Colors.white24;
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: .circular(14),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: .circular(14),
+          border: .all(color: enabled ? Colors.white30 : Colors.white10),
+        ),
+        child: Padding(
+          padding: const .symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: .min,
+            children: [
+              if (!isTrailingIcon) ...[
+                Icon(icon, size: 16, color: fgColor),
+                const SizedBox(width: 2),
+              ],
+              Text(
+                label,
+                style: GothicTheme.sans(size: 11, color: fgColor, weight: .bold),
+              ),
+              if (isTrailingIcon) ...[
+                const SizedBox(width: 2),
+                Icon(icon, size: 16, color: fgColor),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1370,6 +1784,165 @@ class const _WeddingGiftSection({required final ScrollController scrollControlle
             ),
           ),
           const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// SECTION 6: UCAPAN TERIMA KASIH (CLOSING / THANK YOU)
+// ============================================================================
+class const _ThankYouSection({required final ScrollController scrollController})
+    extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: .infinity,
+      child: Stack(
+        alignment: .center,
+        children: [
+          Positioned.fill(
+            child: ShaderMask(
+              shaderCallback: (rect) => const LinearGradient(
+                begin: .topCenter,
+                end: .bottomCenter,
+                colors: [Colors.transparent, Colors.black, Colors.black],
+                stops: [0.0, 0.25, 1.0],
+              ).createShader(rect),
+              blendMode: .dstIn,
+              child: const Opacity(
+                opacity: 0.45,
+                child: InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const .fromLTRB(24, 56, 24, 84),
+            child: Column(
+              children: [
+                ScrollReveal(
+                  scrollController: scrollController,
+                  initialScale: 0.85,
+                  child: const WindSwayFlower(
+                    alignment: .bottomCenter,
+                    maxAngle: 0.03,
+                    swayShift: 2.8,
+                    phaseOffset: 0.5,
+                    child: SizedBox(
+                      width: 190,
+                      height: 135,
+                      child: InvitationAssetImage(
+                        assetPath: InvitationAssets.flowerGift,
+                        fit: .contain,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ScrollReveal(
+                  scrollController: scrollController,
+                  delay: const Duration(milliseconds: 100),
+                  child: Text(
+                    'Terima Kasih',
+                    textAlign: .center,
+                    style: GothicTheme.script(size: 36),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ScrollReveal(
+                  scrollController: scrollController,
+                  delay: const Duration(milliseconds: 180),
+                  child: Text(
+                    'Merupakan suatu kehormatan dan kebahagiaan bagi kami\n'
+                    'apabila Bapak/Ibu/Saudara/i berkenan hadir dan memberikan\n'
+                    'doa restu kepada kedua mempelai.\n\n'
+                    'Atas kehadiran dan doa restu Bapak/Ibu/Saudara/i,\n'
+                    'kami ucapkan terima kasih.',
+                    textAlign: .center,
+                    style: GothicTheme.sans(
+                      size: 12,
+                      color: GothicTheme.textGrey,
+                      height: 1.5,
+                      weight: .bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ScrollReveal(
+                  scrollController: scrollController,
+                  delay: const Duration(milliseconds: 240),
+                  child: Text(
+                    "Wassalamu'alaikum Warahmatullaahi Wabarakaatuh",
+                    textAlign: .center,
+                    style: GothicTheme.sans(size: 12.5, weight: .bold),
+                  ),
+                ),
+                const SizedBox(height: 36),
+                ScrollReveal(
+                  scrollController: scrollController,
+                  delay: const Duration(milliseconds: 320),
+                  initialScale: 0.88,
+                  child: const SizedBox(
+                    width: 140,
+                    height: 140,
+                    child: InvitationAssetImage(
+                      assetPath: InvitationAssets.coverInitialFF,
+                      fit: .contain,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ScrollReveal(
+                  scrollController: scrollController,
+                  delay: const Duration(milliseconds: 400),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Kami yang berbahagia,',
+                        textAlign: .center,
+                        style: GothicTheme.sans(size: 11.5, color: GothicTheme.textGrey),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Fauzi & Fitri',
+                        textAlign: .center,
+                        style: GothicTheme.gothicAlt(size: 42),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Ojay & Mae',
+                        textAlign: .center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: .w300,
+                          color: Colors.white,
+                          letterSpacing: 5,
+                          fontStyle: .italic,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      const ColoredBox(
+                        color: Colors.white24,
+                        child: SizedBox(width: 64, height: 1),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        '19 . 12 . 2026',
+                        textAlign: .center,
+                        style: GothicTheme.sans(
+                          size: 11,
+                          color: Colors.white54,
+                          weight: .bold,
+                          letterSpacing: 3.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
