@@ -3,7 +3,7 @@ import 'dart:js_interop';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 @JS('localStorage.getItem')
@@ -58,11 +58,9 @@ abstract final class InvitationAssets() {
   static const String coverInitialFF = 'assets/images/COVER-1-inisial-FF.png';
   static const String heroBg = 'assets/images/2-BG-tengkorak.png';
   static const String skullCouple = 'assets/images/2-tengkorak-ojay-mae.png';
-  static const String flowerGroom = 'assets/images/3-Bunga-samping-tengkorak.png';
-  static const String leafGroom = 'assets/images/3-Daun-Font-Ojay.png';
   static const String skullGroom = 'assets/images/3-tengkorak-ojay.png';
-  static const String flowerBride = 'assets/images/4-Bunga-samping-tengkorak-wanita.png';
-  static const String leafBride = 'assets/images/4-Daun-Font-Mae.png';
+  static const String flower = 'assets/images/4-Bunga-samping-tengkorak-wanita.png';
+  static const String leaf = 'assets/images/4-Daun-Font-Mae.png';
   static const String skullBride = 'assets/images/4-Tengkorak-Mae.png';
   static const String flowerGift = 'assets/images/6-Bunga-Wedding-Gift.png';
 
@@ -72,11 +70,9 @@ abstract final class InvitationAssets() {
     coverInitialFF,
     heroBg,
     skullCouple,
-    flowerGroom,
-    leafGroom,
     skullGroom,
-    flowerBride,
-    leafBride,
+    flower,
+    leaf,
     skullBride,
     flowerGift,
   ];
@@ -612,8 +608,8 @@ class const _CoupleSection({required final ScrollController scrollController})
             fullName: 'Achmad Fauzi',
             parentInfo: 'Putra Bungsu dari Bpk Moch Noer (alm) dan Ibu Rochilah (almh)',
             skullAsset: InvitationAssets.skullGroom,
-            flowerAsset: InvitationAssets.flowerGroom,
-            leafAsset: InvitationAssets.leafGroom,
+            flowerAsset: InvitationAssets.flower,
+            leafAsset: InvitationAssets.leaf,
             isFlowerOnLeft: true,
           ),
 
@@ -632,8 +628,8 @@ class const _CoupleSection({required final ScrollController scrollController})
             fullName: 'Fitri Anggraini',
             parentInfo: 'Putri Bungsu dari Bpk Aryanto dan Ibu Nami',
             skullAsset: InvitationAssets.skullBride,
-            flowerAsset: InvitationAssets.flowerBride,
-            leafAsset: InvitationAssets.leafBride,
+            flowerAsset: InvitationAssets.flower,
+            leafAsset: InvitationAssets.leaf,
             isFlowerOnLeft: false,
           ),
         ],
@@ -685,7 +681,12 @@ class const _BrideGroomBlock({
                     child: SizedBox(
                       width: 210,
                       height: 240,
-                      child: InvitationAssetImage(assetPath: flowerAsset, fit: .contain),
+                      child: isFlowerOnLeft
+                          ? Transform.flip(
+                              flipX: true,
+                              child: InvitationAssetImage(assetPath: flowerAsset, fit: .contain),
+                            )
+                          : InvitationAssetImage(assetPath: flowerAsset, fit: .contain),
                     ),
                   ),
                 ),
@@ -710,7 +711,12 @@ class const _BrideGroomBlock({
                     maxAngle: 0.016,
                     swayShift: 1.8,
                     phaseOffset: isFlowerOnLeft ? 0.7 : 2.4,
-                    child: InvitationAssetImage(assetPath: leafAsset, fit: .contain),
+                    child: isFlowerOnLeft
+                        ? Transform.flip(
+                            flipX: true,
+                            child: InvitationAssetImage(assetPath: leafAsset, fit: .contain),
+                          )
+                        : InvitationAssetImage(assetPath: leafAsset, fit: .contain),
                   ),
                 ),
                 Padding(
@@ -1016,8 +1022,7 @@ class _RsvpSectionState() extends State<_RsvpSection> {
       'recipientName': 'Rizky Pratama',
       'recipientLabel': 'Rizky Pratama',
       'attendance': 'Hadir',
-      'message':
-          'Selamat menempuh hidup baru Ojay & Mae! Semoga menjadi keluarga yang sakinah, mawaddah, warahmah.',
+      'message': 'Selamat menempuh hidup baru Ojay & Mae! Semoga menjadi keluarga yang sakinah, mawaddah, warahmah.',
     },
     {
       'recipientId': 'dinda_lestari_dev02',
@@ -1042,8 +1047,7 @@ class _RsvpSectionState() extends State<_RsvpSection> {
       'recipientName': 'Siti Rahmawati',
       'recipientLabel': 'Siti Rahmawati',
       'attendance': 'Tidak Hadir',
-      'message':
-          'Mohon maaf belum bisa hadir karena ada agenda di luar kota. Doa terbaik untuk Ojay & Mae!',
+      'message': 'Mohon maaf belum bisa hadir karena ada agenda di luar kota. Doa terbaik untuk Ojay & Mae!',
     },
     {
       'recipientId': 'andi_wijaya_dev05',
@@ -1148,10 +1152,7 @@ class _RsvpSectionState() extends State<_RsvpSection> {
     );
   }
 
-  String _computeLocalRecipientLabel({
-    required String recipientId,
-    required String recipientName,
-  }) {
+  String _computeLocalRecipientLabel({required String recipientId, required String recipientName}) {
     if (recipientName.isEmpty) return '';
     final normalized = recipientName.toLowerCase();
     final seenRecipientIds = <String>[];
@@ -1540,8 +1541,8 @@ class _RsvpSectionState() extends State<_RsvpSection> {
               itemBuilder: (context, index) {
                 final data = pageItems[index];
                 final sender = data['name'] ?? 'Tamu';
-                final recipientLabel =
-                    (data['recipientLabel'] ?? data['recipientName'] ?? '').trim();
+                final recipientLabel = (data['recipientLabel'] ?? data['recipientName'] ?? '')
+                    .trim();
                 final status = data['attendance'] ?? 'Hadir';
                 final msg = data['message'] ?? '';
 
@@ -1811,10 +1812,7 @@ class const _ThankYouSection({required final ScrollController scrollController})
                 stops: [0.0, 0.25, 1.0],
               ).createShader(rect),
               blendMode: .dstIn,
-              child: const Opacity(
-                opacity: 0.45,
-                child: InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
-              ),
+              child: const InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
             ),
           ),
           Padding(
