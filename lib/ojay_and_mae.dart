@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 
-// import 'package:material_ui/material_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // ============================================================================
-// KONSTANTA ASET & KONFIGURASI TIPOGRAFI SESUAI MOCKUP
+// KONSTANTA ASET & KONFIGURASI TIPOGRAFI
 // ============================================================================
 abstract final class InvitationAssets() {
   static const String bankBCA = 'assets/images/BCA.png';
@@ -20,6 +20,21 @@ abstract final class InvitationAssets() {
   static const String leafBride = 'assets/images/4-Daun-Font-Mae.png';
   static const String skullBride = 'assets/images/4-Tengkorak-Mae.png';
   static const String flowerGift = 'assets/images/6-Bunga-Wedding-Gift.png';
+
+  static const List<String> all = [
+    bankBCA,
+    coverBg,
+    coverInitialFF,
+    heroBg,
+    skullCouple,
+    flowerGroom,
+    leafGroom,
+    skullGroom,
+    flowerBride,
+    leafBride,
+    skullBride,
+    flowerGift,
+  ];
 }
 
 abstract final class GothicTheme() {
@@ -61,12 +76,13 @@ abstract final class GothicTheme() {
     Color color = white,
     FontWeight weight = .normal,
     double height = 1.45,
+    double letterSpacing = 0.2,
   }) => TextStyle(
     fontSize: size,
     fontWeight: weight,
     color: color,
     height: height,
-    letterSpacing: 0.2,
+    letterSpacing: letterSpacing,
   );
 }
 
@@ -94,6 +110,7 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   final ScrollController _scrollController = ScrollController();
   late final AnimationController _coverGateController;
   bool _isOpened = false;
+  bool _didPrecache = false;
 
   final _heroKey = GlobalKey();
   final _coupleKey = GlobalKey();
@@ -107,6 +124,17 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didPrecache) {
+      _didPrecache = true;
+      for (final asset in InvitationAssets.all) {
+        precacheImage(AssetImage(asset), context);
+      }
+    }
   }
 
   @override
@@ -157,7 +185,10 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                     },
                   ),
                 ),
-                Container(width: 1, color: Colors.white12),
+                const ColoredBox(
+                  color: Colors.white12,
+                  child: SizedBox(width: 1, height: .infinity),
+                ),
                 Expanded(flex: 6, child: _buildScrollableInvitation()),
               ],
             )
@@ -169,8 +200,8 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
               animation: _coverGateController,
               builder: (context, child) {
                 final t = Curves.easeInOutCubic.transform(_coverGateController.value);
-                return Transform.translate(
-                  offset: Offset(0, -screenSize.height * t),
+                return FractionalTranslation(
+                  translation: Offset(0, -t),
                   child: Opacity(opacity: (1.0 - t).clamp(0.0, 1.0), child: child),
                 );
               },
@@ -227,12 +258,9 @@ class const _DesktopLeftShowcase({required final ValueChanged<int> onNavigate})
     return Stack(
       fit: .expand,
       children: [
-        const Opacity(
-          opacity: 0.45,
-          child: InvitationAssetImage(assetPath: InvitationAssets.coverBg, fit: .cover),
-        ),
-        Container(
-          decoration: const BoxDecoration(
+        const InvitationAssetImage(assetPath: InvitationAssets.coverBg, fit: .cover),
+        const DecoratedBox(
+          decoration: BoxDecoration(
             gradient: RadialGradient(
               radius: 0.95,
               colors: [Colors.transparent, GothicTheme.bgBlack],
@@ -255,7 +283,7 @@ class const _DesktopLeftShowcase({required final ValueChanged<int> onNavigate})
                   const SizedBox(width: 14),
                   Text(
                     '19 DESEMBER 2026',
-                    style: GothicTheme.sans(size: 12, weight: .bold).copyWith(letterSpacing: 3),
+                    style: GothicTheme.sans(size: 12, weight: .bold, letterSpacing: 3),
                   ),
                 ],
               ),
@@ -299,13 +327,15 @@ class const _NavChip({required final String label, required final VoidCallback o
     return InkWell(
       onTap: onTap,
       borderRadius: .circular(20),
-      child: Container(
-        padding: const .symmetric(horizontal: 16, vertical: 8),
+      child: DecoratedBox(
         decoration: BoxDecoration(
           border: .all(color: Colors.white30),
           borderRadius: .circular(20),
         ),
-        child: Text(label, style: GothicTheme.sans(size: 12)),
+        child: Padding(
+          padding: const .symmetric(horizontal: 16, vertical: 8),
+          child: Text(label, style: GothicTheme.sans(size: 12)),
+        ),
       ),
     );
   }
@@ -317,32 +347,18 @@ class const _NavChip({required final String label, required final VoidCallback o
 class const _CoverSection({required final VoidCallback onOpen}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return ColoredBox(
       color: GothicTheme.bgBlack,
       child: Stack(
         fit: .expand,
         children: [
           const InvitationAssetImage(assetPath: InvitationAssets.coverBg, fit: .cover),
-          // Container(
-          //   decoration: BoxDecoration(
-          //     gradient: LinearGradient(
-          //       begin: .topCenter,
-          //       end: .bottomCenter,
-          //       colors: [
-          //         GothicTheme.bgBlack.withValues(alpha: 0.5),
-          //         GothicTheme.bgBlack.withValues(alpha: 0.2),
-          //         GothicTheme.bgBlack.withValues(alpha: 0.85),
-          //       ],
-          //     ),
-          //   ),
-          // ),
           Padding(
             padding: const .symmetric(horizontal: 24, vertical: 36),
             child: Column(
               children: [
                 const SizedBox(height: 24),
                 Text('Pernikahan Kami', style: GothicTheme.script(size: 24)),
-                // const SizedBox(height: 6),
                 Text('Fauzi & Fitri', style: GothicTheme.gothicAlt(size: 44)),
                 const Text(
                   'Ojay & Mae',
@@ -363,7 +379,6 @@ class const _CoverSection({required final VoidCallback onOpen}) extends Stateles
                   child: InvitationAssetImage(assetPath: InvitationAssets.coverInitialFF),
                 ),
                 const SizedBox(height: 24),
-
                 const Spacer(),
                 Text('Kepada Yth', style: GothicTheme.script(size: 16)),
                 Text('Tamu Undangan', style: GothicTheme.script(size: 28)),
@@ -426,6 +441,7 @@ class const _HeroSection({required final ScrollController scrollController})
                 ScrollReveal(
                   scrollController: scrollController,
                   delay: const Duration(milliseconds: 100),
+                  triggerFraction: 0.90,
                   child: Text(
                     'Pernikahan Kami',
                     textAlign: .center,
@@ -436,7 +452,8 @@ class const _HeroSection({required final ScrollController scrollController})
                 ScrollReveal(
                   scrollController: scrollController,
                   delay: const Duration(milliseconds: 250),
-                  initialScale: 0.82,
+                  initialScale: 0.86,
+                  triggerFraction: 0.90,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 340, maxHeight: 420),
                     child: const InvitationAssetImage(
@@ -449,6 +466,7 @@ class const _HeroSection({required final ScrollController scrollController})
                 ScrollReveal(
                   scrollController: scrollController,
                   delay: const Duration(milliseconds: 400),
+                  triggerFraction: 0.92,
                   child: Text(
                     'Sabtu, 19 Desember 2026',
                     textAlign: .center,
@@ -574,12 +592,18 @@ class const _BrideGroomBlock({
                 child: ScrollReveal(
                   scrollController: scrollController,
                   delay: const Duration(milliseconds: 220),
-                  initialScale: 0.55,
-                  slideOffset: Offset(isFlowerOnLeft ? -24 : 24, 20),
-                  child: SizedBox(
-                    width: 210,
-                    height: 240,
-                    child: InvitationAssetImage(assetPath: flowerAsset, fit: .contain),
+                  initialScale: 0.72,
+                  slideOffset: Offset(isFlowerOnLeft ? -18 : 18, 16),
+                  child: WindSwayFlower(
+                    alignment: isFlowerOnLeft ? .bottomRight : .bottomLeft,
+                    phaseOffset: isFlowerOnLeft ? 0.0 : 1.8,
+                    maxAngle: 0.038,
+                    swayShift: isFlowerOnLeft ? -3.5 : 3.5,
+                    child: SizedBox(
+                      width: 210,
+                      height: 240,
+                      child: InvitationAssetImage(assetPath: flowerAsset, fit: .contain),
+                    ),
                   ),
                 ),
               ),
@@ -590,7 +614,7 @@ class const _BrideGroomBlock({
         ScrollReveal(
           scrollController: scrollController,
           delay: const Duration(milliseconds: 150),
-          initialScale: 0.8,
+          initialScale: 0.86,
           child: SizedBox(
             width: 200,
             height: 60,
@@ -598,7 +622,13 @@ class const _BrideGroomBlock({
               alignment: .center,
               children: [
                 Positioned.fill(
-                  child: InvitationAssetImage(assetPath: leafAsset, fit: .contain),
+                  child: WindSwayFlower(
+                    duration: const Duration(milliseconds: 7800),
+                    maxAngle: 0.016,
+                    swayShift: 1.8,
+                    phaseOffset: isFlowerOnLeft ? 0.7 : 2.4,
+                    child: InvitationAssetImage(assetPath: leafAsset, fit: .contain),
+                  ),
                 ),
                 Padding(
                   padding: const .only(bottom: 4),
@@ -633,38 +663,8 @@ class const _BrideGroomBlock({
 // SECTION 3: ACARA PERNIKAHAN
 // ============================================================================
 class const _EventSection({required final ScrollController scrollController})
-    extends StatefulWidget {
-  @override
-  State<_EventSection> createState() => _EventSectionState();
-}
-
-class _EventSectionState() extends State<_EventSection> {
-  static final _targetDate = DateTime(2026, 12, 19, 9, 0);
-  late Timer _timer;
-  late Duration _remaining;
-
-  @override
-  void initState() {
-    super.initState();
-    _calculateRemaining();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(_calculateRemaining);
-    });
-  }
-
-  void _calculateRemaining() {
-    final diff = _targetDate.difference(DateTime.now());
-    _remaining = diff.isNegative ? Duration.zero : diff;
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-
-    super.dispose();
-  }
-
-  void _openMaps(String label) {
+    extends StatelessWidget {
+  void _openMaps(BuildContext context, String label) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: GothicTheme.white,
@@ -678,17 +678,12 @@ class _EventSectionState() extends State<_EventSection> {
 
   @override
   Widget build(BuildContext context) {
-    final days = _remaining.inDays;
-    final hours = _remaining.inHours % 24;
-    final minutes = _remaining.inMinutes % 60;
-    final seconds = _remaining.inSeconds % 60;
-
     return Padding(
       padding: const .symmetric(horizontal: 24, vertical: 76),
       child: Column(
         children: [
           ScrollReveal(
-            scrollController: widget.scrollController,
+            scrollController: scrollController,
             child: Text(
               'Acara Pernikahan',
               textAlign: .center,
@@ -697,26 +692,14 @@ class _EventSectionState() extends State<_EventSection> {
           ),
           const SizedBox(height: 22),
           ScrollReveal(
-            scrollController: widget.scrollController,
+            scrollController: scrollController,
             delay: const Duration(milliseconds: 150),
             initialScale: 0.9,
-            child: Row(
-              mainAxisAlignment: .center,
-              children: [
-                _WhiteCountdownBox(value: '$days', label: 'Hari'),
-                const SizedBox(width: 12),
-                _WhiteCountdownBox(value: hours.toString().padLeft(2, '0'), label: 'Jam'),
-                const SizedBox(width: 12),
-                _WhiteCountdownBox(value: minutes.toString().padLeft(2, '0'), label: 'Menit'),
-                const SizedBox(width: 12),
-                _WhiteCountdownBox(value: seconds.toString().padLeft(2, '0'), label: 'Detik'),
-              ],
-            ),
+            child: const RepaintBoundary(child: _CountdownTimerRow()),
           ),
           const SizedBox(height: 22),
-
           ScrollReveal(
-            scrollController: widget.scrollController,
+            scrollController: scrollController,
             delay: const Duration(milliseconds: 220),
             child: Text(
               'Merupakan suatu kehormatan dan kebahagiaan bagi kami apabila\n'
@@ -734,7 +717,7 @@ class _EventSectionState() extends State<_EventSection> {
           ),
           const SizedBox(height: 28),
           ScrollReveal(
-            scrollController: widget.scrollController,
+            scrollController: scrollController,
             delay: const Duration(milliseconds: 280),
             child: Column(
               children: [
@@ -765,14 +748,14 @@ class _EventSectionState() extends State<_EventSection> {
                 _WhitePillButton(
                   icon: Icons.location_on,
                   label: 'Google Maps',
-                  onTap: () => _openMaps('KUA Benda'),
+                  onTap: () => _openMaps(context, 'KUA Benda'),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 36),
           ScrollReveal(
-            scrollController: widget.scrollController,
+            scrollController: scrollController,
             delay: const Duration(milliseconds: 350),
             child: Column(
               children: [
@@ -793,7 +776,7 @@ class _EventSectionState() extends State<_EventSection> {
                 _WhitePillButton(
                   icon: Icons.location_on,
                   label: 'Google Maps',
-                  onTap: () => _openMaps('Kediaman Mempelai Wanita'),
+                  onTap: () => _openMaps(context, 'Kediaman Mempelai Wanita'),
                 ),
               ],
             ),
@@ -804,32 +787,86 @@ class _EventSectionState() extends State<_EventSection> {
   }
 }
 
+class const _CountdownTimerRow() extends StatefulWidget {
+  @override
+  State<_CountdownTimerRow> createState() => _CountdownTimerRowState();
+}
+
+class _CountdownTimerRowState() extends State<_CountdownTimerRow> {
+  static final DateTime _targetDate = DateTime(2026, 12, 19, 9, 0);
+  Timer? _timer;
+  late Duration _remaining;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateRemaining();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(_calculateRemaining);
+    });
+  }
+
+  void _calculateRemaining() {
+    final diff = _targetDate.difference(DateTime.now());
+    _remaining = diff.isNegative ? .zero : diff;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final days = _remaining.inDays;
+    final hours = _remaining.inHours % 24;
+    final minutes = _remaining.inMinutes % 60;
+    final seconds = _remaining.inSeconds % 60;
+
+    return Row(
+      mainAxisAlignment: .center,
+      children: [
+        _WhiteCountdownBox(value: '$days', label: 'Hari'),
+        const SizedBox(width: 12),
+        _WhiteCountdownBox(value: hours.toString().padLeft(2, '0'), label: 'Jam'),
+        const SizedBox(width: 12),
+        _WhiteCountdownBox(value: minutes.toString().padLeft(2, '0'), label: 'Menit'),
+        const SizedBox(width: 12),
+        _WhiteCountdownBox(value: seconds.toString().padLeft(2, '0'), label: 'Detik'),
+      ],
+    );
+  }
+}
+
 class const _WhiteCountdownBox({required final String value, required final String label})
     extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 68,
-      height: 68,
-      decoration: BoxDecoration(color: GothicTheme.white, borderRadius: .circular(14)),
-      child: Column(
-        mainAxisAlignment: .center,
-        children: [
-          Text(
-            value,
-            style: GothicTheme.sans(
-              size: 20,
-              color: GothicTheme.bgBlack,
-              weight: .bold,
-              height: 1.1,
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: GothicTheme.white, borderRadius: .all(.circular(14))),
+      child: SizedBox(
+        width: 68,
+        height: 68,
+        child: Column(
+          mainAxisAlignment: .center,
+          children: [
+            Text(
+              value,
+              style: GothicTheme.sans(
+                size: 20,
+                color: GothicTheme.bgBlack,
+                weight: .bold,
+                height: 1.1,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: GothicTheme.sans(size: 10.5, color: Colors.black87, weight: .w600),
-          ),
-        ],
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GothicTheme.sans(size: 10.5, color: Colors.black87, weight: .w600),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -876,12 +913,18 @@ class const _WeddingGiftSection({required final ScrollController scrollControlle
         children: [
           ScrollReveal(
             scrollController: scrollController,
-            delay: const Duration(milliseconds: 350),
-            initialScale: 0.65,
-            child: const SizedBox(
-              width: 220,
-              height: 160,
-              child: InvitationAssetImage(assetPath: InvitationAssets.flowerGift, fit: .contain),
+            delay: const Duration(milliseconds: 180),
+            initialScale: 0.78,
+            child: const WindSwayFlower(
+              alignment: .bottomCenter,
+              maxAngle: 0.034,
+              swayShift: 3.2,
+              phaseOffset: 1.1,
+              child: SizedBox(
+                width: 220,
+                height: 160,
+                child: InvitationAssetImage(assetPath: InvitationAssets.flowerGift, fit: .contain),
+              ),
             ),
           ),
           ScrollReveal(
@@ -937,16 +980,78 @@ class const _WeddingGiftSection({required final ScrollController scrollControlle
 }
 
 // ============================================================================
-// WIDGET SCROLL REVEAL
+// WIDGET ANIMASI BUNGA TERTIUP ANGIN (CONTINUOUS ORGANIC WIND SWAY)
+// ============================================================================
+class const WindSwayFlower({
+  super.key,
+  required final Widget child,
+  final Duration duration = const Duration(milliseconds: 6800),
+  final double maxAngle = 0.036,
+  final double swayShift = 3.2,
+  final double phaseOffset = 0.0,
+  final Alignment alignment = .bottomCenter,
+}) extends StatefulWidget {
+  @override
+  State<WindSwayFlower> createState() => _WindSwayFlowerState();
+}
+
+class _WindSwayFlowerState() extends State<WindSwayFlower> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.duration)..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final t = _controller.value * 2 * math.pi + widget.phaseOffset;
+          final wave = math.sin(t);
+          final subWave = math.cos(t) * 0.25;
+
+          final angle = wave * widget.maxAngle;
+          final dx = wave * widget.swayShift;
+          final dy = subWave * (widget.swayShift * 0.35);
+          final scale = 1.0 + (wave * 0.01);
+
+          return Transform.translate(
+            offset: Offset(dx, dy),
+            child: Transform.rotate(
+              angle: angle,
+              alignment: widget.alignment,
+              child: Transform.scale(scale: scale, alignment: widget.alignment, child: child),
+            ),
+          );
+        },
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// WIDGET SCROLL REVEAL (MUNCUL SAAT KONTEN MASUK KE VIEWPORT)
 // ============================================================================
 class const ScrollReveal({
   super.key,
   required final Widget child,
   required final ScrollController scrollController,
-  final Duration duration = const Duration(milliseconds: 750),
-  final Duration delay = Duration.zero,
+  final Duration duration = const Duration(milliseconds: 1150),
+  final Duration delay = .zero,
   final double initialScale = 0.94,
-  final Offset slideOffset = const Offset(0, 28),
+  final Offset slideOffset = const Offset(0, 24),
+  final double triggerFraction = 0.83,
 }) extends StatefulWidget {
   @override
   State<ScrollReveal> createState() => _ScrollRevealState();
@@ -963,11 +1068,11 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.duration);
-    final curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
 
+    final curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart);
     _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(curve);
     _scale = Tween<double>(begin: widget.initialScale, end: 1.0).animate(curve);
-    _offset = Tween<Offset>(begin: widget.slideOffset, end: Offset.zero).animate(curve);
+    _offset = Tween<Offset>(begin: widget.slideOffset, end: .zero).animate(curve);
 
     widget.scrollController.addListener(_checkVisibility);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility());
@@ -978,12 +1083,20 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
     final renderObj = context.findRenderObject();
     if (renderObj is RenderBox && renderObj.hasSize) {
       final viewportHeight = MediaQuery.sizeOf(context).height;
-      final position = renderObj.localToGlobal(Offset.zero);
+      final position = renderObj.localToGlobal(.zero);
+      final elementTriggerPoint = position.dy + math.min(renderObj.size.height * 0.12, 24.0);
 
-      if (position.dy <= viewportHeight * 0.90) {
+      final isNearScrollEnd =
+          widget.scrollController.hasClients &&
+          widget.scrollController.position.maxScrollExtent > 0 &&
+          widget.scrollController.position.pixels >=
+              widget.scrollController.position.maxScrollExtent - 32;
+
+      if (elementTriggerPoint <= viewportHeight * widget.triggerFraction ||
+          (isNearScrollEnd && position.dy < viewportHeight * 0.95)) {
         _hasTriggered = true;
         widget.scrollController.removeListener(_checkVisibility);
-        if (widget.delay == Duration.zero) {
+        if (widget.delay == .zero) {
           _controller.forward();
         } else {
           Future.delayed(widget.delay, () {
@@ -1003,18 +1116,18 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Opacity(
-          opacity: _opacity.value,
-          child: Transform.translate(
+    return FadeTransition(
+      opacity: _opacity,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.translate(
             offset: _offset.value,
             child: Transform.scale(scale: _scale.value, child: child),
-          ),
-        );
-      },
-      child: widget.child,
+          );
+        },
+        child: widget.child,
+      ),
     );
   }
 }
@@ -1032,6 +1145,8 @@ class const InvitationAssetImage({
     return Image.asset(
       assetPath,
       fit: fit,
+      filterQuality: .medium,
+      gaplessPlayback: true,
       errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
     );
   }
@@ -1058,9 +1173,7 @@ class const _BankGiftCard({
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: .infinity,
-      padding: const .all(24),
+    return DecoratedBox(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: .topLeft,
@@ -1070,63 +1183,66 @@ class const _BankGiftCard({
         borderRadius: .circular(20),
         border: .all(color: Colors.white30, width: 1),
       ),
-      child: Column(
-        crossAxisAlignment: .start,
-        children: [
-          Row(
-            mainAxisAlignment: .spaceBetween,
-            children: [
-              Container(
-                width: 40,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: .circular(6),
-                  border: .all(color: Colors.white54, width: 0.8),
+      child: Padding(
+        padding: const .all(24),
+        child: Column(
+          crossAxisAlignment: .start,
+          children: [
+            Row(
+              mainAxisAlignment: .spaceBetween,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: .circular(6),
+                    border: .all(color: Colors.white54, width: 0.8),
+                  ),
+                  child: const SizedBox(width: 40, height: 30),
                 ),
-              ),
-              const SizedBox(
-                width: 80,
-                child: InvitationAssetImage(assetPath: InvitationAssets.bankBCA),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            accountHolder,
-            style: GothicTheme.sans(
-              size: 13,
-              color: GothicTheme.white,
-              weight: .bold,
-            ).copyWith(letterSpacing: 1.6),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            accountNumber,
-            style: const TextStyle(
-              fontFamily: 'Courier',
-              fontSize: 23,
-              fontWeight: .bold,
-              letterSpacing: 2.5,
-              color: GothicTheme.white,
+                const SizedBox(
+                  width: 80,
+                  child: InvitationAssetImage(assetPath: InvitationAssets.bankBCA),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: .centerRight,
-            child: OutlinedButton.icon(
-              onPressed: () => _copyAccountNumber(context),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GothicTheme.white,
-                side: const BorderSide(color: GothicTheme.white),
-                shape: RoundedRectangleBorder(borderRadius: .circular(20)),
-                padding: const .symmetric(horizontal: 16, vertical: 8),
+            const SizedBox(height: 20),
+            Text(
+              accountHolder,
+              style: GothicTheme.sans(
+                size: 13,
+                color: GothicTheme.white,
+                weight: .bold,
+                letterSpacing: 1.6,
               ),
-              icon: const Icon(Icons.copy_rounded, size: 15),
-              label: const Text('Salin Norek', style: TextStyle(fontSize: 12, fontWeight: .bold)),
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              accountNumber,
+              style: const TextStyle(
+                fontFamily: 'Courier',
+                fontSize: 23,
+                fontWeight: .bold,
+                letterSpacing: 2.5,
+                color: GothicTheme.white,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: .centerRight,
+              child: OutlinedButton.icon(
+                onPressed: () => _copyAccountNumber(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GothicTheme.white,
+                  side: const BorderSide(color: GothicTheme.white),
+                  shape: RoundedRectangleBorder(borderRadius: .circular(20)),
+                  padding: const .symmetric(horizontal: 16, vertical: 8),
+                ),
+                icon: const Icon(Icons.copy_rounded, size: 15),
+                label: const Text('Salin Norek', style: TextStyle(fontSize: 12, fontWeight: .bold)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
