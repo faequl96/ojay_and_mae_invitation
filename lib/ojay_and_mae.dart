@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -87,13 +88,27 @@ abstract final class GothicTheme() {
 }
 
 class const OjayMaeWeddingApp({super.key}) extends StatelessWidget {
+  static String _resolveRecipientName() {
+    final params = <String, String>{...Uri.base.queryParameters};
+    if (Uri.base.fragment.contains('?')) {
+      final fragQuery = Uri.base.fragment.split('?').last;
+      params.addAll(Uri.splitQueryString(fragQuery));
+    }
+    for (final key in const ['to', 'kepada', 'guest', 'nama', 'name', 'penerima']) {
+      final value = params[key]?.trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final recipientName = _resolveRecipientName();
     return MaterialApp(
       title: 'Undangan Pernikahan Ojay & Mae',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(brightness: .dark, scaffoldBackgroundColor: GothicTheme.bgBlack),
-      home: const InvitationScreen(),
+      home: InvitationScreen(recipientName: recipientName),
     );
   }
 }
@@ -101,7 +116,7 @@ class const OjayMaeWeddingApp({super.key}) extends StatelessWidget {
 // ============================================================================
 // LAYAR UTAMA: GATE COVER + CONTINUOUS SCROLL (MOBILE & DESKTOP)
 // ============================================================================
-class const InvitationScreen({super.key}) extends StatefulWidget {
+class const InvitationScreen({super.key, final String recipientName = ''}) extends StatefulWidget {
   @override
   State<InvitationScreen> createState() => _InvitationScreenState();
 }
@@ -115,6 +130,7 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   final _heroKey = GlobalKey();
   final _coupleKey = GlobalKey();
   final _eventKey = GlobalKey();
+  final _rsvpKey = GlobalKey();
   final _giftKey = GlobalKey();
 
   @override
@@ -180,7 +196,7 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                   flex: 5,
                   child: _DesktopLeftShowcase(
                     onNavigate: (index) {
-                      final keys = [_heroKey, _coupleKey, _eventKey, _giftKey];
+                      final keys = [_heroKey, _coupleKey, _eventKey, _rsvpKey, _giftKey];
                       _scrollToSection(keys[index]);
                     },
                   ),
@@ -205,7 +221,7 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                   child: Opacity(opacity: (1.0 - t).clamp(0.0, 1.0), child: child),
                 );
               },
-              child: _CoverSection(onOpen: _openInvitation),
+              child: _CoverSection(recipientName: widget.recipientName, onOpen: _openInvitation),
             ),
         ],
       ),
@@ -234,6 +250,13 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
                 KeyedSubtree(
                   key: _eventKey,
                   child: _EventSection(scrollController: _scrollController),
+                ),
+                KeyedSubtree(
+                  key: _rsvpKey,
+                  child: _RsvpSection(
+                    scrollController: _scrollController,
+                    defaultName: widget.recipientName,
+                  ),
                 ),
                 KeyedSubtree(
                   key: _giftKey,
@@ -309,7 +332,8 @@ class const _DesktopLeftShowcase({required final ValueChanged<int> onNavigate})
                   _NavChip(label: 'Pembuka', onTap: () => onNavigate(0)),
                   _NavChip(label: 'Mempelai', onTap: () => onNavigate(1)),
                   _NavChip(label: 'Acara', onTap: () => onNavigate(2)),
-                  _NavChip(label: 'Wedding Gift', onTap: () => onNavigate(3)),
+                  _NavChip(label: 'RSVP', onTap: () => onNavigate(3)),
+                  _NavChip(label: 'Wedding Gift', onTap: () => onNavigate(4)),
                 ],
               ),
             ],
@@ -344,9 +368,11 @@ class const _NavChip({required final String label, required final VoidCallback o
 // ============================================================================
 // COVER PEMBUKA
 // ============================================================================
-class const _CoverSection({required final VoidCallback onOpen}) extends StatelessWidget {
+class const _CoverSection({required final String recipientName, required final VoidCallback onOpen})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final displayGuest = recipientName.isNotEmpty ? recipientName : 'Tamu Undangan';
     return ColoredBox(
       color: GothicTheme.bgBlack,
       child: Stack(
@@ -381,7 +407,7 @@ class const _CoverSection({required final VoidCallback onOpen}) extends Stateles
                 const SizedBox(height: 24),
                 const Spacer(),
                 Text('Kepada Yth', style: GothicTheme.script(size: 16)),
-                Text('Tamu Undangan', style: GothicTheme.script(size: 28)),
+                Text(displayGuest, textAlign: .center, style: GothicTheme.script(size: 28)),
                 const SizedBox(height: 18),
                 ElevatedButton(
                   onPressed: onOpen,
@@ -586,9 +612,9 @@ class const _BrideGroomBlock({
                 child: InvitationAssetImage(assetPath: skullAsset, fit: .contain),
               ),
               Positioned(
-                bottom: -14,
-                left: isFlowerOnLeft ? -8 : null,
-                right: !isFlowerOnLeft ? -8 : null,
+                bottom: -24,
+                left: isFlowerOnLeft ? -4 : null,
+                right: !isFlowerOnLeft ? -4 : null,
                 child: ScrollReveal(
                   scrollController: scrollController,
                   delay: const Duration(milliseconds: 220),
@@ -901,7 +927,378 @@ class const _WhitePillButton({
 }
 
 // ============================================================================
-// SECTION 4: WEDDING GIFT
+// SECTION 4: RSVP & UCAPAN DOA (FIRESTORE)
+// ============================================================================
+class const _RsvpSection({
+  required final ScrollController scrollController,
+  required final String defaultName,
+}) extends StatefulWidget {
+  @override
+  State<_RsvpSection> createState() => _RsvpSectionState();
+}
+
+class _RsvpSectionState() extends State<_RsvpSection> {
+  static const String _collectionName = 'rsvps';
+  static const List<String> _attendanceOptions = ['Hadir', 'Tidak Hadir', 'Masih Ragu'];
+
+  late final TextEditingController _nameController;
+  final _messageController = TextEditingController();
+  String _attendance = _attendanceOptions.first;
+  bool _isSubmitting = false;
+
+  CollectionReference<Map<String, dynamic>>? get _collection {
+    try {
+      return FirebaseFirestore.instance.collection(_collectionName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.defaultName);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RsvpSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.defaultName != widget.defaultName && _nameController.text.trim().isEmpty) {
+      _nameController.text = widget.defaultName;
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitRsvp() async {
+    final name = _nameController.text.trim();
+    final message = _messageController.text.trim();
+
+    if (name.isEmpty || message.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: GothicTheme.white,
+          behavior: .floating,
+          content: Text(
+            'Mohon isi nama dan ucapan doa terlebih dahulu.',
+            style: TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final col = _collection;
+    if (col == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: GothicTheme.white,
+          behavior: .floating,
+          content: Text(
+            'Layanan RSVP belum terhubung ke server.',
+            style: TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    HapticFeedback.lightImpact();
+
+    try {
+      await col.add({
+        'name': name,
+        'attendance': _attendance,
+        'message': message,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      _messageController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: GothicTheme.white,
+          behavior: .floating,
+          content: Text(
+            'Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.',
+            style: TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: GothicTheme.white,
+          behavior: .floating,
+          content: Text(
+            'Gagal mengirim RSVP: $e',
+            style: const TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  InputDecoration _inputDecoration({required String label, required String hint}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      labelStyle: GothicTheme.sans(size: 12, color: GothicTheme.textGrey, weight: .w600),
+      hintStyle: GothicTheme.sans(size: 12, color: Colors.white38),
+      filled: true,
+      fillColor: const Color(0xFF141414),
+      contentPadding: const .symmetric(horizontal: 16, vertical: 14),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: .circular(14),
+        borderSide: const BorderSide(color: Colors.white24),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: .circular(14),
+        borderSide: const BorderSide(color: GothicTheme.white, width: 1.4),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final col = _collection;
+
+    return Padding(
+      padding: const .symmetric(horizontal: 16, vertical: 48),
+      child: Column(
+        children: [
+          ScrollReveal(
+            scrollController: widget.scrollController,
+            child: Text(
+              'RSVP & Ucapan Doa',
+              textAlign: .center,
+              style: GothicTheme.script(size: 34),
+            ),
+          ),
+          const SizedBox(height: 28),
+          ScrollReveal(
+            scrollController: widget.scrollController,
+            delay: const Duration(milliseconds: 200),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: .topLeft,
+                  end: .bottomRight,
+                  colors: [Color(0xFF1A1A1A), Color(0xFF0B0B0B)],
+                ),
+                borderRadius: .circular(20),
+                border: .all(color: Colors.white30, width: 1),
+              ),
+              child: Padding(
+                padding: const .all(22),
+                child: Column(
+                  crossAxisAlignment: .stretch,
+                  children: [
+                    TextField(
+                      controller: _nameController,
+                      style: GothicTheme.sans(size: 13, weight: .w600),
+                      decoration: _inputDecoration(label: 'Nama Tamu', hint: 'Masukkan nama Anda'),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Konfirmasi Kehadiran',
+                      style: GothicTheme.sans(size: 12, color: GothicTheme.textGrey, weight: .w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        for (int i = 0; i < _attendanceOptions.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: _AttendanceOptionChip(
+                              label: _attendanceOptions[i],
+                              isSelected: _attendance == _attendanceOptions[i],
+                              onTap: () => setState(() => _attendance = _attendanceOptions[i]),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _messageController,
+                      maxLines: 3,
+                      style: GothicTheme.sans(size: 13),
+                      decoration: _inputDecoration(
+                        label: 'Ucapan & Doa',
+                        hint: 'Tuliskan ucapan dan doa restu untuk kedua mempelai...',
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 42,
+                      child: ElevatedButton.icon(
+                        onPressed: _isSubmitting ? null : _submitRsvp,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: GothicTheme.white,
+                          foregroundColor: GothicTheme.bgBlack,
+                          disabledBackgroundColor: Colors.white38,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: .circular(24)),
+                        ),
+                        icon: _isSubmitting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: GothicTheme.bgBlack,
+                                ),
+                              )
+                            : const Icon(Icons.send_rounded, size: 16, color: GothicTheme.bgBlack),
+                        label: Text(
+                          _isSubmitting ? 'Mengirim...' : 'Kirim Konfirmasi',
+                          style: GothicTheme.sans(
+                            size: 13,
+                            color: GothicTheme.bgBlack,
+                            weight: .bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (col != null) ...[
+            const SizedBox(height: 24),
+            ScrollReveal(
+              scrollController: widget.scrollController,
+              delay: const Duration(milliseconds: 280),
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: col.orderBy('createdAt', descending: true).limit(30).snapshots(),
+                builder: (context, snapshot) {
+                  final docs = snapshot.data?.docs ?? const [];
+                  if (docs.isEmpty) return const SizedBox.shrink();
+
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0E0E0E),
+                      borderRadius: .circular(20),
+                      border: .all(color: Colors.white24),
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 340),
+                      child: ListView.separated(
+                        padding: const .all(18),
+                        shrinkWrap: true,
+                        itemCount: docs.length,
+                        separatorBuilder: (_, _) =>
+                            const Divider(color: Colors.white12, height: 22),
+                        itemBuilder: (context, index) {
+                          final data = docs[index].data();
+                          final sender = (data['name'] as String?)?.trim() ?? 'Tamu';
+                          final status = (data['attendance'] as String?)?.trim() ?? 'Hadir';
+                          final msg = (data['message'] as String?)?.trim() ?? '';
+
+                          return Column(
+                            crossAxisAlignment: .start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: .spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      sender,
+                                      style: GothicTheme.sans(size: 13, weight: .bold),
+                                    ),
+                                  ),
+                                  DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: status == 'Hadir' ? GothicTheme.white : Colors.white12,
+                                      borderRadius: .circular(12),
+                                      border: .all(color: Colors.white30),
+                                    ),
+                                    child: Padding(
+                                      padding: const .symmetric(horizontal: 10, vertical: 3),
+                                      child: Text(
+                                        status,
+                                        style: GothicTheme.sans(
+                                          size: 10,
+                                          color: status == 'Hadir'
+                                              ? GothicTheme.bgBlack
+                                              : GothicTheme.white,
+                                          weight: .bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                msg,
+                                style: GothicTheme.sans(
+                                  size: 12,
+                                  color: GothicTheme.textGrey,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class const _AttendanceOptionChip({
+  required final String label,
+  required final bool isSelected,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: .circular(12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: isSelected ? GothicTheme.white : const Color(0xFF141414),
+          borderRadius: .circular(12),
+          border: .all(color: isSelected ? GothicTheme.white : Colors.white24),
+        ),
+        child: Padding(
+          padding: const .symmetric(vertical: 10, horizontal: 6),
+          child: Text(
+            label,
+            textAlign: .center,
+            style: GothicTheme.sans(
+              size: 11,
+              color: isSelected ? GothicTheme.bgBlack : GothicTheme.textGrey,
+              weight: .bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// SECTION 5: WEDDING GIFT
 // ============================================================================
 class const _WeddingGiftSection({required final ScrollController scrollController})
     extends StatelessWidget {
@@ -1041,7 +1438,7 @@ class _WindSwayFlowerState() extends State<WindSwayFlower> with SingleTickerProv
 }
 
 // ============================================================================
-// WIDGET SCROLL REVEAL (MUNCUL SAAT KONTEN MASUK KE VIEWPORT)
+// WIDGET SCROLL REVEAL (MUNCUL SAAT SCROLL KE BAWAH MAUPUN BALIK KE ATAS)
 // ============================================================================
 class const ScrollReveal({
   super.key,
@@ -1059,57 +1456,101 @@ class const ScrollReveal({
 
 class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final CurvedAnimation _curve;
   late final Animation<double> _opacity;
   late final Animation<double> _scale;
-  late final Animation<Offset> _offset;
+  late Animation<Offset> _offset;
+  Timer? _delayTimer;
   bool _hasTriggered = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.duration);
-
-    final curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart);
-    _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(curve);
-    _scale = Tween<double>(begin: widget.initialScale, end: 1.0).animate(curve);
-    _offset = Tween<Offset>(begin: widget.slideOffset, end: .zero).animate(curve);
+    _curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart);
+    _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(_curve);
+    _scale = Tween<double>(begin: widget.initialScale, end: 1.0).animate(_curve);
+    _updateOffsetTween(fromTop: false);
 
     widget.scrollController.addListener(_checkVisibility);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility());
   }
 
+  void _updateOffsetTween({required bool fromTop}) {
+    final beginOffset = fromTop
+        ? Offset(widget.slideOffset.dx, -widget.slideOffset.dy.abs())
+        : widget.slideOffset;
+    _offset = Tween<Offset>(begin: beginOffset, end: .zero).animate(_curve);
+  }
+
+  @override
+  void didUpdateWidget(covariant ScrollReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scrollController != widget.scrollController) {
+      oldWidget.scrollController.removeListener(_checkVisibility);
+      widget.scrollController.addListener(_checkVisibility);
+    }
+  }
+
   void _checkVisibility() {
-    if (_hasTriggered || !mounted) return;
+    if (!mounted) return;
     final renderObj = context.findRenderObject();
-    if (renderObj is RenderBox && renderObj.hasSize) {
-      final viewportHeight = MediaQuery.sizeOf(context).height;
-      final position = renderObj.localToGlobal(.zero);
-      final elementTriggerPoint = position.dy + math.min(renderObj.size.height * 0.12, 24.0);
+    if (renderObj is! RenderBox || !renderObj.hasSize) return;
 
-      final isNearScrollEnd =
-          widget.scrollController.hasClients &&
-          widget.scrollController.position.maxScrollExtent > 0 &&
-          widget.scrollController.position.pixels >=
-              widget.scrollController.position.maxScrollExtent - 32;
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final top = renderObj.localToGlobal(.zero).dy;
+    final height = renderObj.size.height;
+    final bottom = top + height;
 
-      if (elementTriggerPoint <= viewportHeight * widget.triggerFraction ||
-          (isNearScrollEnd && position.dy < viewportHeight * 0.95)) {
-        _hasTriggered = true;
-        widget.scrollController.removeListener(_checkVisibility);
-        if (widget.delay == .zero) {
-          _controller.forward();
-        } else {
-          Future.delayed(widget.delay, () {
-            if (mounted) _controller.forward();
-          });
-        }
+    final isCompletelyBelow = top >= viewportHeight * 0.98;
+    final isCompletelyAbove = bottom <= viewportHeight * 0.02;
+
+    if (isCompletelyBelow || isCompletelyAbove) {
+      if (_hasTriggered || _controller.value > 0.0) {
+        _hasTriggered = false;
+        _delayTimer?.cancel();
+        _updateOffsetTween(fromTop: isCompletelyAbove);
+        _controller.reset();
+      }
+      return;
+    }
+
+    if (_hasTriggered) return;
+
+    final enterMargin = math.min(height * 0.12, 24.0);
+    final hasScroll =
+        widget.scrollController.hasClients && widget.scrollController.position.maxScrollExtent > 0;
+    final pixels = hasScroll ? widget.scrollController.position.pixels : 0.0;
+    final maxScroll = hasScroll ? widget.scrollController.position.maxScrollExtent : 0.0;
+
+    final isNearBottom = hasScroll && pixels >= maxScroll - 32;
+    final isNearTop = !hasScroll || pixels <= 32;
+
+    final enteredFromBottom =
+        (top + enterMargin) <= viewportHeight * widget.triggerFraction ||
+        (isNearBottom && top < viewportHeight * 0.95);
+    final enteredFromTop =
+        (bottom - enterMargin) >= viewportHeight * (1.0 - widget.triggerFraction) ||
+        (isNearTop && bottom > viewportHeight * 0.05);
+
+    if (enteredFromBottom && enteredFromTop) {
+      _hasTriggered = true;
+      _delayTimer?.cancel();
+      if (widget.delay == .zero) {
+        _controller.forward();
+      } else {
+        _delayTimer = Timer(widget.delay, () {
+          if (mounted && _hasTriggered) _controller.forward();
+        });
       }
     }
   }
 
   @override
   void dispose() {
+    _delayTimer?.cancel();
     widget.scrollController.removeListener(_checkVisibility);
+    _curve.dispose();
     _controller.dispose();
     super.dispose();
   }
