@@ -1,6 +1,41 @@
 include: package:flutter_lints/flutter.yaml
 
+formatter:
+  page_width: 100
+
+linter:
+  rules:
+    # Code Style
+    use_primary_constructors: true
+    use_declaring_parameters: true
+    empty_container_bodies: true
+    unnecessary_type_name_in_constructor: true
+    # initialize_in_field_declaration: true
+    unnecessary_primary_constructor_body: true
+    prefer_const_constructors: true # Menggunakan const pada konstruktor jika memungkinkan
+    prefer_const_literals_to_create_immutables: true # Menggunakan const untuk koleksi yang tidak berubah
+    sort_constructors_first: true # Menyusun konstruktor sebelum metode lainnya
+    always_use_package_imports: true # Menghindari impor relatif
+
+    # Best Practices
+    prefer_single_quotes: true # Menggunakan tanda kutip tunggal untuk string
+
+    # Performance
+    avoid_unnecessary_containers: true # Menghindari penggunaan Container yang tidak perlu
+    prefer_final_fields: true # Menggunakan final untuk field yang tidak berubah
+
+    # Null Safety
+    prefer_null_aware_operators: true # Menggunakan operator null-aware (`??`, `?.`, `??=`)
+
+    # Naming Convention
+    constant_identifier_names: true # Menggunakan format UPPER_CASE untuk konstanta
+    non_constant_identifier_names: false # Tidak mengizinkan penamaan variabel yang tidak sesuai standar
 analyzer:
   exclude:
     - build/**
+    - android/**
+    - ios/**
     - web/**
+    - windows/**
+    - macos/**
+    - linux/**

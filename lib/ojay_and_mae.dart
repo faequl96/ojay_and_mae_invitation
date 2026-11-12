@@ -7,24 +7,22 @@ import 'package:flutter/services.dart';
 // ============================================================================
 // KONSTANTA ASET & KONFIGURASI TIPOGRAFI SESUAI MOCKUP
 // ============================================================================
-abstract final class InvitationAssets {
+abstract final class InvitationAssets() {
   static const String bankBCA = 'assets/images/BCA.png';
   static const String coverBg = 'assets/images/COVER-1-BG-tengkorak.png';
   static const String coverInitialFF = 'assets/images/COVER-1-inisial-FF.png';
   static const String heroBg = 'assets/images/2-BG-tengkorak.png';
   static const String skullCouple = 'assets/images/2-tengkorak-ojay-mae.png';
-  static const String flowerGroom =
-      'assets/images/3-Bunga-samping-tengkorak.png';
+  static const String flowerGroom = 'assets/images/3-Bunga-samping-tengkorak.png';
   static const String leafGroom = 'assets/images/3-Daun-Font-Ojay.png';
   static const String skullGroom = 'assets/images/3-tengkorak-ojay.png';
-  static const String flowerBride =
-      'assets/images/4-Bunga-samping-tengkorak-wanita.png';
+  static const String flowerBride = 'assets/images/4-Bunga-samping-tengkorak-wanita.png';
   static const String leafBride = 'assets/images/4-Daun-Font-Mae.png';
   static const String skullBride = 'assets/images/4-Tengkorak-Mae.png';
   static const String flowerGift = 'assets/images/6-Bunga-Wedding-Gift.png';
 }
 
-abstract final class GothicTheme {
+abstract final class GothicTheme() {
   static const Color bgBlack = Color(0xFF000000);
   static const Color white = Color(0xFFFFFFFF);
   static const Color textGrey = Color(0xFFD8D8D8);
@@ -42,14 +40,13 @@ abstract final class GothicTheme {
     letterSpacing: 0.8,
   );
 
-  static TextStyle gothicAlt({double size = 34, Color color = white}) =>
-      TextStyle(
-        fontFamily: fontGothicAlt,
-        fontFamilyFallback: const ['serif'],
-        fontSize: size,
-        color: color,
-        letterSpacing: 1.4,
-      );
+  static TextStyle gothicAlt({double size = 34, Color color = white}) => TextStyle(
+    fontFamily: fontGothicAlt,
+    fontFamilyFallback: const ['serif'],
+    fontSize: size,
+    color: color,
+    letterSpacing: 1.4,
+  );
 
   static TextStyle script({double size = 30, Color color = white}) => TextStyle(
     fontFamily: fontScript,
@@ -73,18 +70,13 @@ abstract final class GothicTheme {
   );
 }
 
-class OjayMaeWeddingApp extends StatelessWidget {
-  const OjayMaeWeddingApp({super.key});
-
+class const OjayMaeWeddingApp({super.key}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Undangan Pernikahan Ojay & Mae',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: .dark,
-        scaffoldBackgroundColor: GothicTheme.bgBlack,
-      ),
+      theme: ThemeData(brightness: .dark, scaffoldBackgroundColor: GothicTheme.bgBlack),
       home: const InvitationScreen(),
     );
   }
@@ -93,15 +85,12 @@ class OjayMaeWeddingApp extends StatelessWidget {
 // ============================================================================
 // LAYAR UTAMA: GATE COVER + CONTINUOUS SCROLL (MOBILE & DESKTOP)
 // ============================================================================
-class InvitationScreen extends StatefulWidget {
-  const InvitationScreen({super.key});
-
+class const InvitationScreen({super.key}) extends StatefulWidget {
   @override
   State<InvitationScreen> createState() => _InvitationScreenState();
 }
 
-class _InvitationScreenState extends State<InvitationScreen>
-    with SingleTickerProviderStateMixin {
+class _InvitationScreenState() extends State<InvitationScreen> with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   late final AnimationController _coverGateController;
   bool _isOpened = false;
@@ -179,15 +168,10 @@ class _InvitationScreenState extends State<InvitationScreen>
             AnimatedBuilder(
               animation: _coverGateController,
               builder: (context, child) {
-                final t = Curves.easeInOutCubic.transform(
-                  _coverGateController.value,
-                );
+                final t = Curves.easeInOutCubic.transform(_coverGateController.value);
                 return Transform.translate(
                   offset: Offset(0, -screenSize.height * t),
-                  child: Opacity(
-                    opacity: (1.0 - t).clamp(0.0, 1.0),
-                    child: child,
-                  ),
+                  child: Opacity(opacity: (1.0 - t).clamp(0.0, 1.0), child: child),
                 );
               },
               child: _CoverSection(onOpen: _openInvitation),
@@ -222,9 +206,7 @@ class _InvitationScreenState extends State<InvitationScreen>
                 ),
                 KeyedSubtree(
                   key: _giftKey,
-                  child: _WeddingGiftSection(
-                    scrollController: _scrollController,
-                  ),
+                  child: _WeddingGiftSection(scrollController: _scrollController),
                 ),
               ],
             ),
@@ -238,10 +220,8 @@ class _InvitationScreenState extends State<InvitationScreen>
 // ============================================================================
 // PANEL KIRI KHUSUS DESKTOP
 // ============================================================================
-class _DesktopLeftShowcase extends StatelessWidget {
-  final ValueChanged<int> onNavigate;
-  const _DesktopLeftShowcase({required this.onNavigate});
-
+class const _DesktopLeftShowcase({required final ValueChanged<int> onNavigate})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -249,10 +229,7 @@ class _DesktopLeftShowcase extends StatelessWidget {
       children: [
         const Opacity(
           opacity: 0.45,
-          child: InvitationAssetImage(
-            assetPath: InvitationAssets.coverBg,
-            fit: .cover,
-          ),
+          child: InvitationAssetImage(assetPath: InvitationAssets.coverBg, fit: .cover),
         ),
         Container(
           decoration: const BoxDecoration(
@@ -273,17 +250,12 @@ class _DesktopLeftShowcase extends StatelessWidget {
                   const SizedBox(
                     width: 44,
                     height: 44,
-                    child: InvitationAssetImage(
-                      assetPath: InvitationAssets.coverInitialFF,
-                    ),
+                    child: InvitationAssetImage(assetPath: InvitationAssets.coverInitialFF),
                   ),
                   const SizedBox(width: 14),
                   Text(
                     '19 DESEMBER 2026',
-                    style: GothicTheme.sans(
-                      size: 12,
-                      weight: .bold,
-                    ).copyWith(letterSpacing: 3),
+                    style: GothicTheme.sans(size: 12, weight: .bold).copyWith(letterSpacing: 3),
                   ),
                 ],
               ),
@@ -291,16 +263,11 @@ class _DesktopLeftShowcase extends StatelessWidget {
                 child: Column(
                   mainAxisSize: .min,
                   children: [
-                    Text(
-                      'Pernikahan Kami',
-                      style: GothicTheme.gothic(size: 24),
-                    ),
+                    Text('Pernikahan Kami', style: GothicTheme.gothic(size: 24)),
                     const SizedBox(height: 16),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 340),
-                      child: const InvitationAssetImage(
-                        assetPath: InvitationAssets.skullCouple,
-                      ),
+                      child: const InvitationAssetImage(assetPath: InvitationAssets.skullCouple),
                     ),
                     const SizedBox(height: 16),
                     Text('Fauzi & Fitri', style: GothicTheme.script(size: 36)),
@@ -325,11 +292,8 @@ class _DesktopLeftShowcase extends StatelessWidget {
   }
 }
 
-class _NavChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _NavChip({required this.label, required this.onTap});
-
+class const _NavChip({required final String label, required final VoidCallback onTap})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -350,10 +314,7 @@ class _NavChip extends StatelessWidget {
 // ============================================================================
 // COVER PEMBUKA
 // ============================================================================
-class _CoverSection extends StatelessWidget {
-  final VoidCallback onOpen;
-  const _CoverSection({required this.onOpen});
-
+class const _CoverSection({required final VoidCallback onOpen}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -361,10 +322,7 @@ class _CoverSection extends StatelessWidget {
       child: Stack(
         fit: .expand,
         children: [
-          InvitationAssetImage(
-            assetPath: InvitationAssets.coverBg,
-            fit: .cover,
-          ),
+          const InvitationAssetImage(assetPath: InvitationAssets.coverBg, fit: .cover),
           // Container(
           //   decoration: BoxDecoration(
           //     gradient: LinearGradient(
@@ -386,7 +344,7 @@ class _CoverSection extends StatelessWidget {
                 Text('Pernikahan Kami', style: GothicTheme.script(size: 24)),
                 // const SizedBox(height: 6),
                 Text('Fauzi & Fitri', style: GothicTheme.gothicAlt(size: 44)),
-                Text(
+                const Text(
                   'Ojay & Mae',
                   textAlign: .center,
                   style: TextStyle(
@@ -402,9 +360,7 @@ class _CoverSection extends StatelessWidget {
                 const SizedBox(
                   width: 220,
                   height: 220,
-                  child: InvitationAssetImage(
-                    assetPath: InvitationAssets.coverInitialFF,
-                  ),
+                  child: InvitationAssetImage(assetPath: InvitationAssets.coverInitialFF),
                 ),
                 const SizedBox(height: 24),
 
@@ -420,13 +376,9 @@ class _CoverSection extends StatelessWidget {
                     shape: RoundedRectangleBorder(borderRadius: .circular(24)),
                     padding: const .symmetric(horizontal: 40, vertical: 4),
                   ),
-                  child: Text(
+                  child: const Text(
                     'Buka Undangan',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: .bold,
-                      letterSpacing: .5,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: .bold, letterSpacing: .5),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -442,10 +394,8 @@ class _CoverSection extends StatelessWidget {
 // ============================================================================
 // SECTION 1: HERO
 // ============================================================================
-class _HeroSection extends StatelessWidget {
-  final ScrollController scrollController;
-  const _HeroSection({required this.scrollController});
-
+class const _HeroSection({required final ScrollController scrollController})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
@@ -464,10 +414,7 @@ class _HeroSection extends StatelessWidget {
                 stops: [0.0, 0.78, 1.0],
               ).createShader(rect),
               blendMode: .dstIn,
-              child: InvitationAssetImage(
-                assetPath: InvitationAssets.heroBg,
-                fit: .cover,
-              ),
+              child: const InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
             ),
           ),
           Padding(
@@ -491,10 +438,7 @@ class _HeroSection extends StatelessWidget {
                   delay: const Duration(milliseconds: 250),
                   initialScale: 0.82,
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 340,
-                      maxHeight: 420,
-                    ),
+                    constraints: const BoxConstraints(maxWidth: 340, maxHeight: 420),
                     child: const InvitationAssetImage(
                       assetPath: InvitationAssets.skullCouple,
                       fit: .contain,
@@ -523,10 +467,8 @@ class _HeroSection extends StatelessWidget {
 // ============================================================================
 // SECTION 2: PROFIL MEMPELAI
 // ============================================================================
-class _CoupleSection extends StatelessWidget {
-  final ScrollController scrollController;
-  const _CoupleSection({required this.scrollController});
-
+class const _CoupleSection({required final ScrollController scrollController})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -555,11 +497,7 @@ class _CoupleSection extends StatelessWidget {
                   'Ya Allah semoga ridho-Mu tercurah mengiringi\n'
                   'pernikahan kami',
                   textAlign: .center,
-                  style: GothicTheme.sans(
-                    size: 12,
-                    color: GothicTheme.textGrey,
-                    height: 1.4,
-                  ),
+                  style: GothicTheme.sans(size: 12, color: GothicTheme.textGrey, height: 1.4),
                 ),
               ],
             ),
@@ -571,8 +509,7 @@ class _CoupleSection extends StatelessWidget {
             scrollController: scrollController,
             nickname: 'Ojay',
             fullName: 'Achmad Fauzi',
-            parentInfo:
-                'Putra Bungsu dari Bpk Moch Noer (alm) dan Ibu Rochilah (almh)',
+            parentInfo: 'Putra Bungsu dari Bpk Moch Noer (alm) dan Ibu Rochilah (almh)',
             skullAsset: InvitationAssets.skullGroom,
             flowerAsset: InvitationAssets.flowerGroom,
             leafAsset: InvitationAssets.leafGroom,
@@ -584,11 +521,7 @@ class _CoupleSection extends StatelessWidget {
           ScrollReveal(
             scrollController: scrollController,
             initialScale: 0.6,
-            child: Text(
-              '&',
-              textAlign: .center,
-              style: GothicTheme.gothicAlt(size: 160),
-            ),
+            child: Text('&', textAlign: .center, style: GothicTheme.gothicAlt(size: 160)),
           ),
 
           // PROFIL MEMPELAI WANITA (MAE)
@@ -608,27 +541,16 @@ class _CoupleSection extends StatelessWidget {
   }
 }
 
-class _BrideGroomBlock extends StatelessWidget {
-  final ScrollController scrollController;
-  final String nickname;
-  final String fullName;
-  final String parentInfo;
-  final String skullAsset;
-  final String flowerAsset;
-  final String leafAsset;
-  final bool isFlowerOnLeft;
-
-  const _BrideGroomBlock({
-    required this.scrollController,
-    required this.nickname,
-    required this.fullName,
-    required this.parentInfo,
-    required this.skullAsset,
-    required this.flowerAsset,
-    required this.leafAsset,
-    required this.isFlowerOnLeft,
-  });
-
+class const _BrideGroomBlock({
+  required final ScrollController scrollController,
+  required final String nickname,
+  required final String fullName,
+  required final String parentInfo,
+  required final String skullAsset,
+  required final String flowerAsset,
+  required final String leafAsset,
+  required final bool isFlowerOnLeft,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -643,10 +565,7 @@ class _BrideGroomBlock extends StatelessWidget {
               ScrollReveal(
                 scrollController: scrollController,
                 initialScale: 0.88,
-                child: InvitationAssetImage(
-                  assetPath: skullAsset,
-                  fit: .contain,
-                ),
+                child: InvitationAssetImage(assetPath: skullAsset, fit: .contain),
               ),
               Positioned(
                 bottom: -14,
@@ -660,10 +579,7 @@ class _BrideGroomBlock extends StatelessWidget {
                   child: SizedBox(
                     width: 210,
                     height: 240,
-                    child: InvitationAssetImage(
-                      assetPath: flowerAsset,
-                      fit: .contain,
-                    ),
+                    child: InvitationAssetImage(assetPath: flowerAsset, fit: .contain),
                   ),
                 ),
               ),
@@ -682,18 +598,11 @@ class _BrideGroomBlock extends StatelessWidget {
               alignment: .center,
               children: [
                 Positioned.fill(
-                  child: InvitationAssetImage(
-                    assetPath: leafAsset,
-                    fit: .contain,
-                  ),
+                  child: InvitationAssetImage(assetPath: leafAsset, fit: .contain),
                 ),
                 Padding(
                   padding: const .only(bottom: 4),
-                  child: Text(
-                    nickname,
-                    textAlign: .center,
-                    style: GothicTheme.gothicAlt(size: 46),
-                  ),
+                  child: Text(nickname, textAlign: .center, style: GothicTheme.gothicAlt(size: 46)),
                 ),
               ],
             ),
@@ -703,11 +612,7 @@ class _BrideGroomBlock extends StatelessWidget {
         ScrollReveal(
           scrollController: scrollController,
           delay: const Duration(milliseconds: 250),
-          child: Text(
-            fullName,
-            textAlign: .center,
-            style: GothicTheme.script(size: 28),
-          ),
+          child: Text(fullName, textAlign: .center, style: GothicTheme.script(size: 28)),
         ),
         const SizedBox(height: 6),
         ScrollReveal(
@@ -716,11 +621,7 @@ class _BrideGroomBlock extends StatelessWidget {
           child: Text(
             parentInfo,
             textAlign: .center,
-            style: GothicTheme.sans(
-              size: 11,
-              color: GothicTheme.textGrey,
-              weight: .bold,
-            ),
+            style: GothicTheme.sans(size: 11, color: GothicTheme.textGrey, weight: .bold),
           ),
         ),
       ],
@@ -731,15 +632,13 @@ class _BrideGroomBlock extends StatelessWidget {
 // ============================================================================
 // SECTION 3: ACARA PERNIKAHAN
 // ============================================================================
-class _EventSection extends StatefulWidget {
-  final ScrollController scrollController;
-  const _EventSection({required this.scrollController});
-
+class const _EventSection({required final ScrollController scrollController})
+    extends StatefulWidget {
   @override
   State<_EventSection> createState() => _EventSectionState();
 }
 
-class _EventSectionState extends State<_EventSection> {
+class _EventSectionState() extends State<_EventSection> {
   static final _targetDate = DateTime(2026, 12, 19, 9, 0);
   late Timer _timer;
   late Duration _remaining;
@@ -806,20 +705,11 @@ class _EventSectionState extends State<_EventSection> {
               children: [
                 _WhiteCountdownBox(value: '$days', label: 'Hari'),
                 const SizedBox(width: 12),
-                _WhiteCountdownBox(
-                  value: hours.toString().padLeft(2, '0'),
-                  label: 'Jam',
-                ),
+                _WhiteCountdownBox(value: hours.toString().padLeft(2, '0'), label: 'Jam'),
                 const SizedBox(width: 12),
-                _WhiteCountdownBox(
-                  value: minutes.toString().padLeft(2, '0'),
-                  label: 'Menit',
-                ),
+                _WhiteCountdownBox(value: minutes.toString().padLeft(2, '0'), label: 'Menit'),
                 const SizedBox(width: 12),
-                _WhiteCountdownBox(
-                  value: seconds.toString().padLeft(2, '0'),
-                  label: 'Detik',
-                ),
+                _WhiteCountdownBox(value: seconds.toString().padLeft(2, '0'), label: 'Detik'),
               ],
             ),
           ),
@@ -848,11 +738,7 @@ class _EventSectionState extends State<_EventSection> {
             delay: const Duration(milliseconds: 280),
             child: Column(
               children: [
-                Text(
-                  'Akad Nikah',
-                  textAlign: .center,
-                  style: GothicTheme.script(size: 32),
-                ),
+                Text('Akad Nikah', textAlign: .center, style: GothicTheme.script(size: 32)),
                 const SizedBox(height: 6),
                 Text(
                   'SABTU, 19 DESEMBER 2026',
@@ -860,17 +746,9 @@ class _EventSectionState extends State<_EventSection> {
                   style: GothicTheme.sans(size: 18, weight: .bold),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  '09:00 WIB sd Selesai',
-                  textAlign: .center,
-                  style: GothicTheme.sans(size: 15),
-                ),
+                Text('09:00 WIB sd Selesai', textAlign: .center, style: GothicTheme.sans(size: 15)),
                 const SizedBox(height: 12),
-                const Icon(
-                  Icons.location_pin,
-                  color: GothicTheme.white,
-                  size: 52,
-                ),
+                const Icon(Icons.location_pin, color: GothicTheme.white, size: 52),
                 const SizedBox(height: 8),
                 Text(
                   'KUA BENDA',
@@ -881,10 +759,7 @@ class _EventSectionState extends State<_EventSection> {
                   'Jl. Adi Sucipto No.18, RT.001/RW.009,\n'
                   'Belendung, Kec. Benda, Kota Tangerang, Banten 15123',
                   textAlign: .center,
-                  style: GothicTheme.sans(
-                    size: 12,
-                    color: GothicTheme.textGrey,
-                  ),
+                  style: GothicTheme.sans(size: 12, color: GothicTheme.textGrey),
                 ),
                 const SizedBox(height: 8),
                 _WhitePillButton(
@@ -901,11 +776,7 @@ class _EventSectionState extends State<_EventSection> {
             delay: const Duration(milliseconds: 350),
             child: Column(
               children: [
-                Text(
-                  'Acara Tasyakuran',
-                  textAlign: .center,
-                  style: GothicTheme.script(size: 30),
-                ),
+                Text('Acara Tasyakuran', textAlign: .center, style: GothicTheme.script(size: 30)),
                 const SizedBox(height: 6),
                 Text(
                   'Kediaman Mempelai Wanita',
@@ -916,10 +787,7 @@ class _EventSectionState extends State<_EventSection> {
                   'Jl. Halim perdana kusuma, Kp. Jurumudi Pajang RT.02/RW.01\n'
                   'Kec. benda Kel.pajang, Kota Tangerang, Banten',
                   textAlign: .center,
-                  style: GothicTheme.sans(
-                    size: 12,
-                    color: GothicTheme.textGrey,
-                  ),
+                  style: GothicTheme.sans(size: 12, color: GothicTheme.textGrey),
                 ),
                 const SizedBox(height: 8),
                 _WhitePillButton(
@@ -936,21 +804,14 @@ class _EventSectionState extends State<_EventSection> {
   }
 }
 
-class _WhiteCountdownBox extends StatelessWidget {
-  final String value;
-  final String label;
-
-  const _WhiteCountdownBox({required this.value, required this.label});
-
+class const _WhiteCountdownBox({required final String value, required final String label})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 68,
       height: 68,
-      decoration: BoxDecoration(
-        color: GothicTheme.white,
-        borderRadius: .circular(14),
-      ),
+      decoration: BoxDecoration(color: GothicTheme.white, borderRadius: .circular(14)),
       child: Column(
         mainAxisAlignment: .center,
         children: [
@@ -966,11 +827,7 @@ class _WhiteCountdownBox extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             label,
-            style: GothicTheme.sans(
-              size: 10.5,
-              color: Colors.black87,
-              weight: .w600,
-            ),
+            style: GothicTheme.sans(size: 10.5, color: Colors.black87, weight: .w600),
           ),
         ],
       ),
@@ -978,17 +835,11 @@ class _WhiteCountdownBox extends StatelessWidget {
   }
 }
 
-class _WhitePillButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _WhitePillButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
+class const _WhitePillButton({
+  required final IconData icon,
+  required final String label,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -1005,11 +856,7 @@ class _WhitePillButton extends StatelessWidget {
         icon: Icon(icon, size: 15, color: GothicTheme.bgBlack),
         label: Text(
           label,
-          style: GothicTheme.sans(
-            size: 13,
-            color: GothicTheme.bgBlack,
-            weight: .bold,
-          ),
+          style: GothicTheme.sans(size: 13, color: GothicTheme.bgBlack, weight: .bold),
         ),
       ),
     );
@@ -1019,24 +866,8 @@ class _WhitePillButton extends StatelessWidget {
 // ============================================================================
 // SECTION 4: WEDDING GIFT
 // ============================================================================
-class _WeddingGiftSection extends StatelessWidget {
-  final ScrollController scrollController;
-  const _WeddingGiftSection({required this.scrollController});
-
-  void _copyRekening(BuildContext context, String name, String norek) {
-    Clipboard.setData(ClipboardData(text: norek));
-    HapticFeedback.lightImpact();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: GothicTheme.white,
-        content: Text(
-          'Nomor rekening $name ($norek) berhasil disalin',
-          style: const TextStyle(color: GothicTheme.bgBlack, fontWeight: .bold),
-        ),
-      ),
-    );
-  }
-
+class const _WeddingGiftSection({required final ScrollController scrollController})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1050,19 +881,12 @@ class _WeddingGiftSection extends StatelessWidget {
             child: const SizedBox(
               width: 220,
               height: 160,
-              child: InvitationAssetImage(
-                assetPath: InvitationAssets.flowerGift,
-                fit: .contain,
-              ),
+              child: InvitationAssetImage(assetPath: InvitationAssets.flowerGift, fit: .contain),
             ),
           ),
           ScrollReveal(
             scrollController: scrollController,
-            child: Text(
-              'Wedding Gift',
-              textAlign: .center,
-              style: GothicTheme.script(size: 34),
-            ),
+            child: Text('Wedding Gift', textAlign: .center, style: GothicTheme.script(size: 34)),
           ),
           const SizedBox(height: 12),
           ScrollReveal(
@@ -1087,7 +911,7 @@ class _WeddingGiftSection extends StatelessWidget {
             child: ScrollReveal(
               scrollController: scrollController,
               delay: const Duration(milliseconds: 200),
-              child: _BankGiftCard(
+              child: const _BankGiftCard(
                 accountHolder: 'ACHMAD FAUZI',
                 accountNumber: '6040564266',
               ),
@@ -1099,7 +923,7 @@ class _WeddingGiftSection extends StatelessWidget {
             child: ScrollReveal(
               scrollController: scrollController,
               delay: const Duration(milliseconds: 300),
-              child: _BankGiftCard(
+              child: const _BankGiftCard(
                 accountHolder: 'FITRI ANGGRAINI',
                 accountNumber: '5390800152',
               ),
@@ -1115,30 +939,20 @@ class _WeddingGiftSection extends StatelessWidget {
 // ============================================================================
 // WIDGET SCROLL REVEAL
 // ============================================================================
-class ScrollReveal extends StatefulWidget {
-  final Widget child;
-  final ScrollController scrollController;
-  final Duration duration;
-  final Duration delay;
-  final double initialScale;
-  final Offset slideOffset;
-
-  const ScrollReveal({
-    super.key,
-    required this.child,
-    required this.scrollController,
-    this.duration = const Duration(milliseconds: 750),
-    this.delay = Duration.zero,
-    this.initialScale = 0.94,
-    this.slideOffset = const Offset(0, 28),
-  });
-
+class const ScrollReveal({
+  super.key,
+  required final Widget child,
+  required final ScrollController scrollController,
+  final Duration duration = const Duration(milliseconds: 750),
+  final Duration delay = Duration.zero,
+  final double initialScale = 0.94,
+  final Offset slideOffset = const Offset(0, 28),
+}) extends StatefulWidget {
   @override
   State<ScrollReveal> createState() => _ScrollRevealState();
 }
 
-class _ScrollRevealState extends State<ScrollReveal>
-    with SingleTickerProviderStateMixin {
+class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _opacity;
   late final Animation<double> _scale;
@@ -1149,17 +963,11 @@ class _ScrollRevealState extends State<ScrollReveal>
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.duration);
-    final curve = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-    );
+    final curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
 
     _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(curve);
     _scale = Tween<double>(begin: widget.initialScale, end: 1.0).animate(curve);
-    _offset = Tween<Offset>(
-      begin: widget.slideOffset,
-      end: Offset.zero,
-    ).animate(curve);
+    _offset = Tween<Offset>(begin: widget.slideOffset, end: Offset.zero).animate(curve);
 
     widget.scrollController.addListener(_checkVisibility);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility());
@@ -1172,7 +980,6 @@ class _ScrollRevealState extends State<ScrollReveal>
       final viewportHeight = MediaQuery.sizeOf(context).height;
       final position = renderObj.localToGlobal(Offset.zero);
 
-      // Trigger animasi ketika bagian atas komponen masuk ke 90% tinggi layar
       if (position.dy <= viewportHeight * 0.90) {
         _hasTriggered = true;
         widget.scrollController.removeListener(_checkVisibility);
@@ -1215,16 +1022,11 @@ class _ScrollRevealState extends State<ScrollReveal>
 // ============================================================================
 // SAFE ASSET IMAGE LOADER
 // ============================================================================
-class InvitationAssetImage extends StatelessWidget {
-  final String assetPath;
-  final BoxFit fit;
-
-  const InvitationAssetImage({
-    super.key,
-    required this.assetPath,
-    this.fit = .contain,
-  });
-
+class const InvitationAssetImage({
+  super.key,
+  required final String assetPath,
+  final BoxFit fit = .contain,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Image.asset(
@@ -1235,15 +1037,10 @@ class InvitationAssetImage extends StatelessWidget {
   }
 }
 
-class _BankGiftCard extends StatelessWidget {
-  final String accountHolder;
-  final String accountNumber;
-
-  const _BankGiftCard({
-    required this.accountHolder,
-    required this.accountNumber,
-  });
-
+class const _BankGiftCard({
+  required final String accountHolder,
+  required final String accountNumber,
+}) extends StatelessWidget {
   void _copyAccountNumber(BuildContext context) {
     Clipboard.setData(ClipboardData(text: accountNumber));
     HapticFeedback.lightImpact();
@@ -1288,11 +1085,9 @@ class _BankGiftCard extends StatelessWidget {
                   border: .all(color: Colors.white54, width: 0.8),
                 ),
               ),
-              SizedBox(
+              const SizedBox(
                 width: 80,
-                child: InvitationAssetImage(
-                  assetPath: InvitationAssets.bankBCA,
-                ),
+                child: InvitationAssetImage(assetPath: InvitationAssets.bankBCA),
               ),
             ],
           ),
@@ -1328,10 +1123,7 @@ class _BankGiftCard extends StatelessWidget {
                 padding: const .symmetric(horizontal: 16, vertical: 8),
               ),
               icon: const Icon(Icons.copy_rounded, size: 15),
-              label: const Text(
-                'Salin Norek',
-                style: TextStyle(fontSize: 12, fontWeight: .bold),
-              ),
+              label: const Text('Salin Norek', style: TextStyle(fontSize: 12, fontWeight: .bold)),
             ),
           ),
         ],
