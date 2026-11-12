@@ -4,15 +4,17 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: ^3.11.7
+  sdk: ^3.13.7
 
 dependencies:
   flutter:
     sdk: flutter
   firebase_core: ^3.12.0
   cloud_firestore: ^5.6.5
+
   flutter_web_plugins:
     sdk: flutter
+  # material_ui: ^1.11.0
 
 dev_dependencies:
   flutter_test:
@@ -20,16 +22,27 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
-  uses-material-design: false
+  uses-material-design: true
   assets:
-    - assets/images/ojay_mae_cover.png
+    - assets/images/COVER-1-BG-tengkorak.png
+    - assets/images/COVER-1-inisial-FF.png
+    - assets/images/2-BG-tengkorak.png
+    - assets/images/2-tengkorak-ojay-mae.png
+    - assets/images/3-Bunga-samping-tengkorak.png
+    - assets/images/3-Daun-Font-Ojay.png
+    - assets/images/3-tengkorak-ojay.png
+    - assets/images/4-Bunga-samping-tengkorak-wanita.png
+    - assets/images/4-Daun-Font-Mae.png
+    - assets/images/4-Tengkorak-Mae.png
+    - assets/images/6-Bunga-Wedding-Gift.png
+
   fonts:
-    - family: OutlawBlackletter
+    - family: AngelRhapsody
       fonts:
-        - asset: assets/fonts/PirataOne-Regular.ttf
-    - family: WesternSlab
+        - asset: assets/fonts/Angel rhapsody.ttf
+    - family: AngelWish
       fonts:
-        - asset: assets/fonts/Rye-Regular.ttf
-    - family: HauntedSerif
+        - asset: assets/fonts/Angel wish.ttf
+    - family: BirdsOfParadise
       fonts:
-        - asset: assets/fonts/IMFellDWPica-Regular.ttf
+        - asset: assets/fonts/Birds of Paradise.ttf

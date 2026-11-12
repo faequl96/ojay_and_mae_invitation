@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "In Vite Project Web App",
+      "request": "launch",
+      "type": "dart",
+      "args": [
+        "-d",
+        "chrome",
+        "--web-port",
+        "3300",
+        // "--wasm",
+        // "canvaskit",
+        // "--enable-impeller",
+        // "--enable-experiment=dot-shorthands",
+        "--web-browser-flag=--user-data-dir=D:\\flutter_chrome_profile"
+        // "--web-browser-flag=--profile-directory=Default"
+      ]
+    }
+  ]
+}
