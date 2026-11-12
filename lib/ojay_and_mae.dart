@@ -165,7 +165,6 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   final ScrollController _scrollController = ScrollController();
   late final AnimationController _coverGateController;
   bool _isOpened = false;
-  bool _didPrecache = false;
 
   final _heroKey = GlobalKey();
   final _coupleKey = GlobalKey();
@@ -181,17 +180,6 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_didPrecache) {
-      _didPrecache = true;
-      for (final asset in InvitationAssets.all) {
-        precacheImage(AssetImage(asset), context);
-      }
-    }
   }
 
   @override
@@ -287,32 +275,44 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
             constraints: const BoxConstraints(maxWidth: 460),
             child: Column(
               children: [
-                KeyedSubtree(
-                  key: _heroKey,
-                  child: _HeroSection(scrollController: _scrollController),
-                ),
-                KeyedSubtree(
-                  key: _coupleKey,
-                  child: _CoupleSection(scrollController: _scrollController),
-                ),
-                KeyedSubtree(
-                  key: _eventKey,
-                  child: _EventSection(scrollController: _scrollController),
-                ),
-                KeyedSubtree(
-                  key: _giftKey,
-                  child: _WeddingGiftSection(scrollController: _scrollController),
-                ),
-                KeyedSubtree(
-                  key: _rsvpKey,
-                  child: _RsvpSection(
-                    scrollController: _scrollController,
-                    defaultName: widget.recipientName,
+                RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _heroKey,
+                    child: _HeroSection(scrollController: _scrollController),
                   ),
                 ),
-                KeyedSubtree(
-                  key: _thankYouKey,
-                  child: _ThankYouSection(scrollController: _scrollController),
+                RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _coupleKey,
+                    child: _CoupleSection(scrollController: _scrollController),
+                  ),
+                ),
+                RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _eventKey,
+                    child: _EventSection(scrollController: _scrollController),
+                  ),
+                ),
+                RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _giftKey,
+                    child: _WeddingGiftSection(scrollController: _scrollController),
+                  ),
+                ),
+                RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _rsvpKey,
+                    child: _RsvpSection(
+                      scrollController: _scrollController,
+                      defaultName: widget.recipientName,
+                    ),
+                  ),
+                ),
+                RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _thankYouKey,
+                    child: _ThankYouSection(scrollController: _scrollController),
+                  ),
                 ),
               ],
             ),
@@ -499,16 +499,19 @@ class const _HeroSection({required final ScrollController scrollController})
       child: Stack(
         alignment: .center,
         children: [
-          Positioned.fill(
-            child: ShaderMask(
-              shaderCallback: (rect) => const LinearGradient(
-                begin: .topCenter,
-                end: .bottomCenter,
-                colors: [Colors.black, Colors.black, Colors.transparent],
-                stops: [0.0, 0.78, 1.0],
-              ).createShader(rect),
-              blendMode: .dstIn,
-              child: const InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
+          const Positioned.fill(
+            child: InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
+          ),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: .topCenter,
+                  end: .bottomCenter,
+                  colors: [Colors.transparent, Colors.transparent, GothicTheme.bgBlack],
+                  stops: [0.0, 0.78, 1.0],
+                ),
+              ),
             ),
           ),
           Padding(
@@ -1073,6 +1076,7 @@ class _RsvpSectionState() extends State<_RsvpSection> {
   bool _isSubmitting = false;
   int _currentPage = 0;
   String? _resolvedRecipientLabel;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>>? _rsvpStream;
 
   CollectionReference<Map<String, dynamic>>? get _collection {
     try {
@@ -1094,6 +1098,7 @@ class _RsvpSectionState() extends State<_RsvpSection> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.defaultName);
+    _rsvpStream = _collection?.orderBy('createdAt', descending: true).snapshots();
     unawaited(_registerRecipientVisit());
   }
 
@@ -1342,7 +1347,7 @@ class _RsvpSectionState() extends State<_RsvpSection> {
 
   @override
   Widget build(BuildContext context) {
-    final col = _collection;
+    final rsvpStream = _rsvpStream;
 
     return Padding(
       padding: const .symmetric(horizontal: 16, vertical: 48),
@@ -1451,9 +1456,9 @@ class _RsvpSectionState() extends State<_RsvpSection> {
           ScrollReveal(
             scrollController: widget.scrollController,
             delay: const Duration(milliseconds: 280),
-            child: col != null
+            child: rsvpStream != null
                 ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: col.orderBy('createdAt', descending: true).snapshots(),
+                    stream: rsvpStream,
                     builder: (context, snapshot) {
                       final docs = snapshot.data?.docs ?? const [];
                       if (docs.isEmpty) return _buildRsvpListCard(_dummyRsvps);
@@ -1803,16 +1808,19 @@ class const _ThankYouSection({required final ScrollController scrollController})
       child: Stack(
         alignment: .center,
         children: [
-          Positioned.fill(
-            child: ShaderMask(
-              shaderCallback: (rect) => const LinearGradient(
-                begin: .topCenter,
-                end: .bottomCenter,
-                colors: [Colors.transparent, Colors.black, Colors.black],
-                stops: [0.0, 0.25, 1.0],
-              ).createShader(rect),
-              blendMode: .dstIn,
-              child: const InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
+          const Positioned.fill(
+            child: InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
+          ),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: .topCenter,
+                  end: .bottomCenter,
+                  colors: [GothicTheme.bgBlack, Colors.transparent, Colors.transparent],
+                  stops: [0.0, 0.25, 1.0],
+                ),
+              ),
             ),
           ),
           Padding(
@@ -1965,15 +1973,60 @@ class const WindSwayFlower({
 
 class _WindSwayFlowerState() extends State<WindSwayFlower> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  ScrollPosition? _scrollPosition;
+  double _viewportHeight = 800.0;
+  double? _lastCheckedPixels;
+  bool _isVisible = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: widget.duration)..repeat();
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility(force: true));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _viewportHeight = MediaQuery.sizeOf(context).height;
+    final newPos = Scrollable.maybeOf(context)?.position;
+    if (_scrollPosition != newPos) {
+      _scrollPosition?.removeListener(_onScroll);
+      _scrollPosition = newPos;
+      _scrollPosition?.addListener(_onScroll);
+    }
+  }
+
+  void _onScroll() => _checkVisibility();
+
+  void _checkVisibility({bool force = false}) {
+    if (!mounted) return;
+    final pixels = _scrollPosition?.pixels ?? 0.0;
+    if (!force && _lastCheckedPixels != null && (pixels - _lastCheckedPixels!).abs() < 24.0) {
+      return;
+    }
+    _lastCheckedPixels = pixels;
+
+    final renderObj = context.findRenderObject();
+    if (renderObj is! RenderBox || !renderObj.hasSize) return;
+
+    final top = renderObj.localToGlobal(.zero).dy;
+    final bottom = top + renderObj.size.height;
+    final visible = bottom >= -40 && top <= _viewportHeight + 40;
+
+    if (visible != _isVisible) {
+      _isVisible = visible;
+      if (visible) {
+        if (!_controller.isAnimating) _controller.repeat();
+      } else {
+        _controller.stop(canceled: false);
+      }
+    }
   }
 
   @override
   void dispose() {
+    _scrollPosition?.removeListener(_onScroll);
     _controller.dispose();
     super.dispose();
   }
@@ -2033,6 +2086,9 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
   late Animation<Offset> _offset;
   Timer? _delayTimer;
   bool _hasTriggered = false;
+  bool _listenerAttached = false;
+  double _viewportHeight = 800.0;
+  double? _lastCheckedPixels;
 
   @override
   void initState() {
@@ -2043,8 +2099,35 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
     _scale = Tween<double>(begin: widget.initialScale, end: 1.0).animate(_curve);
     _updateOffsetTween(fromTop: false);
 
-    widget.scrollController.addListener(_checkVisibility);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility());
+    _controller.addStatusListener(_onAnimationStatus);
+    _attachListener();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility(force: true));
+  }
+
+  void _attachListener() {
+    if (!_listenerAttached) {
+      widget.scrollController.addListener(_checkVisibility);
+      _listenerAttached = true;
+    }
+  }
+
+  void _detachListener() {
+    if (_listenerAttached) {
+      widget.scrollController.removeListener(_checkVisibility);
+      _listenerAttached = false;
+    }
+  }
+
+  void _onAnimationStatus(AnimationStatus status) {
+    if (status == .completed) {
+      _detachListener();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _viewportHeight = MediaQuery.sizeOf(context).height;
   }
 
   void _updateOffsetTween({required bool fromTop}) {
@@ -2058,54 +2141,59 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
   void didUpdateWidget(covariant ScrollReveal oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.scrollController != widget.scrollController) {
-      oldWidget.scrollController.removeListener(_checkVisibility);
-      widget.scrollController.addListener(_checkVisibility);
+      if (_listenerAttached) {
+        oldWidget.scrollController.removeListener(_checkVisibility);
+        _listenerAttached = false;
+      }
+      if (!_hasTriggered) {
+        _attachListener();
+      }
     }
   }
 
-  void _checkVisibility() {
-    if (!mounted) return;
+  void _checkVisibility({bool force = false}) {
+    if (!mounted || _hasTriggered) return;
+
+    final hasScroll =
+        widget.scrollController.hasClients && widget.scrollController.position.maxScrollExtent > 0;
+    final pixels = hasScroll ? widget.scrollController.position.pixels : 0.0;
+    if (!force && _lastCheckedPixels != null && (pixels - _lastCheckedPixels!).abs() < 16.0) {
+      return;
+    }
+    _lastCheckedPixels = pixels;
+
     final renderObj = context.findRenderObject();
     if (renderObj is! RenderBox || !renderObj.hasSize) return;
 
-    final viewportHeight = MediaQuery.sizeOf(context).height;
     final top = renderObj.localToGlobal(.zero).dy;
     final height = renderObj.size.height;
     final bottom = top + height;
 
-    final isCompletelyBelow = top >= viewportHeight * 0.98;
-    final isCompletelyAbove = bottom <= viewportHeight * 0.02;
-
-    if (isCompletelyBelow || isCompletelyAbove) {
-      if (_hasTriggered || _controller.value > 0.0) {
-        _hasTriggered = false;
-        _delayTimer?.cancel();
-        _updateOffsetTween(fromTop: isCompletelyAbove);
-        _controller.reset();
-      }
+    if (top >= _viewportHeight * 0.98) {
+      _updateOffsetTween(fromTop: false);
+      return;
+    }
+    if (bottom <= _viewportHeight * 0.02) {
+      _updateOffsetTween(fromTop: true);
       return;
     }
 
-    if (_hasTriggered) return;
-
     final enterMargin = math.min(height * 0.12, 24.0);
-    final hasScroll =
-        widget.scrollController.hasClients && widget.scrollController.position.maxScrollExtent > 0;
-    final pixels = hasScroll ? widget.scrollController.position.pixels : 0.0;
     final maxScroll = hasScroll ? widget.scrollController.position.maxScrollExtent : 0.0;
 
     final isNearBottom = hasScroll && pixels >= maxScroll - 32;
     final isNearTop = !hasScroll || pixels <= 32;
 
     final enteredFromBottom =
-        (top + enterMargin) <= viewportHeight * widget.triggerFraction ||
-        (isNearBottom && top < viewportHeight * 0.95);
+        (top + enterMargin) <= _viewportHeight * widget.triggerFraction ||
+        (isNearBottom && top < _viewportHeight * 0.95);
     final enteredFromTop =
-        (bottom - enterMargin) >= viewportHeight * (1.0 - widget.triggerFraction) ||
-        (isNearTop && bottom > viewportHeight * 0.05);
+        (bottom - enterMargin) >= _viewportHeight * (1.0 - widget.triggerFraction) ||
+        (isNearTop && bottom > _viewportHeight * 0.05);
 
     if (enteredFromBottom && enteredFromTop) {
       _hasTriggered = true;
+      _detachListener();
       _delayTimer?.cancel();
       if (widget.delay == .zero) {
         _controller.forward();
@@ -2120,7 +2208,8 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
   @override
   void dispose() {
     _delayTimer?.cancel();
-    widget.scrollController.removeListener(_checkVisibility);
+    _detachListener();
+    _controller.removeStatusListener(_onAnimationStatus);
     _curve.dispose();
     _controller.dispose();
     super.dispose();
@@ -2128,17 +2217,20 @@ class _ScrollRevealState() extends State<ScrollReveal> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _opacity,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return Transform.translate(
-            offset: _offset.value,
-            child: Transform.scale(scale: _scale.value, child: child),
-          );
-        },
-        child: widget.child,
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: _opacity,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            if (_controller.isCompleted) return child!;
+            return Transform.translate(
+              offset: _offset.value,
+              child: Transform.scale(scale: _scale.value, child: child),
+            );
+          },
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -2157,7 +2249,7 @@ class const InvitationAssetImage({
     return Image.asset(
       assetPath,
       fit: fit,
-      filterQuality: .medium,
+      filterQuality: .low,
       gaplessPlayback: true,
       errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
     );
