@@ -24,17 +24,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/images/COVER-1-BG-tengkorak.png
-    - assets/images/COVER-1-inisial-FF.png
-    - assets/images/2-BG-tengkorak.png
-    - assets/images/2-tengkorak-ojay-mae.png
-    - assets/images/3-Bunga-samping-tengkorak.png
-    - assets/images/3-Daun-Font-Ojay.png
-    - assets/images/3-tengkorak-ojay.png
-    - assets/images/4-Bunga-samping-tengkorak-wanita.png
-    - assets/images/4-Daun-Font-Mae.png
-    - assets/images/4-Tengkorak-Mae.png
-    - assets/images/6-Bunga-Wedding-Gift.png
+    - assets/images/
 
   fonts:
     - family: AngelRhapsody

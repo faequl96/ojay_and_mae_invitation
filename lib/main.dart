@@ -46,7 +46,7 @@ void preCacheAssetImages() {
   final config = ImageConfiguration(devicePixelRatio: devicePixelRatio);
 
   final List<ImageProvider> images = [
-    const AssetImage('assets/images/ojay_mae_cover.png'),
+    // const AssetImage('assets/images/ojay_mae_cover.png'),
   ];
 
   for (var provider in images) {
