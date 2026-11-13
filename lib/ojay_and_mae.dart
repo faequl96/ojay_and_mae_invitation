@@ -710,7 +710,6 @@ class const _BrideGroomBlock({
               children: [
                 Positioned.fill(
                   child: WindSwayFlower(
-                    duration: const Duration(milliseconds: 7800),
                     maxAngle: 0.016,
                     swayShift: 1.8,
                     phaseOffset: isFlowerOnLeft ? 0.7 : 2.4,
@@ -1961,7 +1960,7 @@ class const _ThankYouSection({required final ScrollController scrollController})
 class const WindSwayFlower({
   super.key,
   required final Widget child,
-  final Duration duration = const Duration(milliseconds: 6800),
+  final Duration duration = const Duration(milliseconds: 3500),
   final double maxAngle = 0.036,
   final double swayShift = 3.2,
   final double phaseOffset = 0.0,
