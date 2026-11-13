@@ -1,67 +1,41 @@
 import 'dart:async';
-import 'dart:js_interop';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:ojay_and_mae_invitation/ojay_and_mae.dart';
+import 'package:ojay_and_mae_invitation/src/firebase_bootstrap.dart';
+import 'package:ojay_and_mae_invitation/src/web_interop.dart';
 
-@JS('updateSplashProgress')
-external JSPromise? _jsUpdateSplashProgress(
-  double initialPercent,
-  double targetPercent,
-  double minMs,
-  double maxMs,
-);
-
-Future<void> _updateSplash(
-  double initialPercent,
-  double targetPercent,
-  double minMs,
-  double maxMs,
-) async {
-  try {
-    final promise = _jsUpdateSplashProgress(
-      initialPercent,
-      targetPercent,
-      minMs,
-      maxMs,
-    );
-    if (promise != null) await promise.toDart;
-  } catch (_) {}
-}
-
-Future<void> _initFirebase() async {
-  try {
-    await Firebase.initializeApp();
-  } catch (_) {}
-}
-
-void main() async {
+Future<void> main() async {
   usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize Firebase concurrently so first-frame cover rendering is not blocked.
+  unawaited(FirebaseBootstrap.ensureInitialized());
+
   final recipientName = OjayMaeWeddingApp.resolveRecipientName();
+  WebInterop.updateSplashProgress(90, 96);
 
-  await Future.wait([
-    _initFirebase(),
-    _updateSplash(80, 95, 50, 350),
-    preCacheAssetImages(),
-  ]);
-
-  await _updateSplash(95, 100, 150, 250);
+  // Only precache above-the-fold cover assets before first frame.
+  await preCacheAssetImages(InvitationAssets.coverCritical)
+      .timeout(const Duration(milliseconds: 1200), onTimeout: () {});
 
   runApp(OjayMaeWeddingApp(recipientName: recipientName));
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    WebInterop.completeSplash();
+    unawaited(preCacheAssetImages(InvitationAssets.deferred));
+  });
 }
 
-Future<void> preCacheAssetImages() async {
+Future<void> preCacheAssetImages([List<String> assets = InvitationAssets.all]) {
   final views = PlatformDispatcher.instance.views;
   final devicePixelRatio = views.isNotEmpty ? views.first.devicePixelRatio : 1.0;
   final config = ImageConfiguration(devicePixelRatio: devicePixelRatio);
 
   final futures = <Future<void>>[];
-  for (final assetPath in InvitationAssets.all) {
+  for (final assetPath in assets) {
     final completer = Completer<void>();
     final stream = AssetImage(assetPath).resolve(config);
     late final ImageStreamListener listener;
@@ -79,8 +53,5 @@ Future<void> preCacheAssetImages() async {
     futures.add(completer.future);
   }
 
-  await Future.wait(futures).timeout(
-    const Duration(seconds: 3),
-    onTimeout: () => const [],
-  );
+  return Future.wait(futures).then((_) {});
 }

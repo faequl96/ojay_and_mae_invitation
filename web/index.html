@@ -1,60 +1,75 @@
 <!doctype html>
-<html>
+<html lang="id">
   <head>
     <base href="$FLUTTER_BASE_HREF" />
 
     <meta charset="UTF-8" />
     <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
     <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport" />
-    <meta name="description" content="In-Vite App" />
+    <meta name="description" content="Undangan Pernikahan Ojay &amp; Mae (19 Desember 2026)" />
     <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
     <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp" />
+
+    <!-- Preconnect to Flutter Web engine CDN and Firestore -->
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://www.gstatic.com" />
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
 
     <!-- iOS meta tags & icons -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <meta name="apple-mobile-web-app-title" content="ojay_and_mae_invitation" />
+    <meta name="apple-mobile-web-app-title" content="Ojay &amp; Mae" />
     <link rel="apple-touch-icon" href="icons/Icon-192.png" />
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="favicon.png" />
 
-    <title>iv_project_web_app</title>
+    <title>Undangan Pernikahan Ojay &amp; Mae</title>
     <link rel="manifest" href="manifest.json" />
 
     <style>
-      body { margin: 0; padding: 0; background-color: #ffffff; }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #000000;
+      }
 
       .logo {
         width: 100px;
-        height: auto;
+        height: 36px;
         margin-bottom: 14px;
       }
-      
+
       .container {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
+        inset: 0;
+        z-index: 9999;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        background-color: #fff;
+        background-color: #ffffff;
         overflow: hidden;
         box-sizing: border-box;
+        opacity: 1;
+        transition: opacity 0.22s ease-out;
+      }
+
+      .container.is-hidden {
+        opacity: 0;
+        pointer-events: none;
       }
 
       .progress-container {
         position: relative;
-        width: 260px; 
-        height: 20px; 
+        width: 260px;
+        height: 20px;
         background-color: #d3f3ee;
         border-radius: 20px;
         overflow: hidden;
         display: flex;
-        align-items: center; 
+        align-items: center;
         justify-content: center;
       }
 
@@ -64,8 +79,7 @@
         top: 0;
         width: 0%;
         height: 100%;
-        background-color: #09AB81;
-        transition: width 0.1s linear;
+        background-color: #09ab81;
         z-index: 2;
         overflow: hidden;
         display: flex;
@@ -77,11 +91,11 @@
         width: 260px;
         margin: 0;
         font-size: 11px;
-        font-family: sans-serif;
+        font-family: system-ui, -apple-system, sans-serif;
         font-weight: 800;
         text-align: center;
         left: 0;
-        line-height: 20px; 
+        line-height: 20px;
       }
 
       #progress_text_black {
@@ -98,19 +112,25 @@
         margin-top: 10px;
         font-size: 14px;
         color: #5b5b5b;
-        font-family: sans-serif;
+        font-family: system-ui, -apple-system, sans-serif;
         font-weight: 600;
       }
     </style>
   </head>
   <body>
-    
     <div id="loading_indicator" class="container">
-      <img src="assets/logos/in_vite_logo.png" alt="In-Vite Logo" class="logo">
+      <img
+        src="assets/logos/in_vite_logo.png"
+        alt="In-Vite Logo"
+        width="100"
+        height="36"
+        decoding="async"
+        class="logo"
+      />
 
       <div class="progress-container">
         <p id="progress_text_black" class="progress-text-style">0%</p>
-          
+
         <div id="progress_bar" class="progress-fill">
           <p id="progress_text_white" class="progress-text-style">0%</p>
         </div>
