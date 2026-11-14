@@ -201,6 +201,7 @@ final class _DvdSpriteCache() {
     return _rasterizePicture(_discArtSize, _discArtSize, (canvas, size) {
       final clipPath = Path()..addOval(Offset.zero & size);
       canvas.clipPath(clipPath);
+      canvas.drawRect(Offset.zero & size, Paint()..color = Colors.black);
 
       final bgW = bg.width.toDouble();
       final bgH = bg.height.toDouble();
@@ -355,8 +356,9 @@ class _CoverMusicPlayerOverlayState()
   final ValueNotifier<bool> _showCoverText = ValueNotifier<bool>(true);
   final ValueNotifier<bool> _isMorphActive = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _showMorphPainter = ValueNotifier<bool>(true);
-  final ValueNotifier<bool> _showDockedPlayer = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _showSlidingPill = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _dockPaintVisible = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _dockInteractive = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _pillPaintVisible = ValueNotifier<bool>(true);
 
   ImageStream? _bgStream;
   ImageStreamListener? _bgListener;
@@ -465,9 +467,8 @@ class _CoverMusicPlayerOverlayState()
       if (!mounted) return;
       _spriteCache.ensureSpritesReady();
       _morphRepaintSignal.notify();
-      if (widget.isMorphComplete || _showDockedPlayer.value) {
-        setState(() {});
-      }
+      // Bind baked GPU sprites ke dock pre-warmed yang tersembunyi di balik cover.
+      setState(() {});
     });
   }
 
@@ -544,11 +545,18 @@ class _CoverMusicPlayerOverlayState()
       _spriteCache.ensureSpritesReady();
     }
     final completed = widget.isMorphComplete;
+    final isCoverIdle = !completed && rawT <= 0.0;
+    final dockReady = completed || rawT >= 0.60;
+    final pillReady = completed || rawT >= 0.72;
+
     _showCoverText.value = !completed && rawT < 0.26;
     _isMorphActive.value = !completed && rawT > 0.0;
     _showMorphPainter.value = !completed && rawT < 0.60;
-    _showDockedPlayer.value = completed || rawT >= 0.60;
-    _showSlidingPill.value = completed || rawT >= 0.72;
+    // Saat cover belum dibuka (rawT == 0), dock digambar di belakang cover hitam opaque
+    // untuk warm-up GPU (shader, tekstur, font ikon) tanpa pernah tampil ke pengguna.
+    _dockPaintVisible.value = isCoverIdle || dockReady;
+    _dockInteractive.value = dockReady;
+    _pillPaintVisible.value = isCoverIdle || pillReady;
     _syncDiscSpin();
   }
 
@@ -593,8 +601,9 @@ class _CoverMusicPlayerOverlayState()
     _showCoverText.dispose();
     _isMorphActive.dispose();
     _showMorphPainter.dispose();
-    _showDockedPlayer.dispose();
-    _showSlidingPill.dispose();
+    _dockPaintVisible.dispose();
+    _dockInteractive.dispose();
+    _pillPaintVisible.dispose();
     _morphRepaintSignal.dispose();
     _spriteCache.dispose();
     super.dispose();
@@ -608,9 +617,56 @@ class _CoverMusicPlayerOverlayState()
     final dockRight = baseMargin + safePadding.right;
     final dockBottom = baseMargin + safePadding.bottom;
 
+    final Widget persistentDock = Positioned(
+      right: dockRight,
+      bottom: dockBottom,
+      width: _dockWidth,
+      height: _discSize,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _dockInteractive,
+        child: _DockedDvdMusicDock(
+          discSize: _discSize,
+          dockWidth: _dockWidth,
+          pillRightOverlap: _pillRightOverlap,
+          viewportSize: size,
+          dockRight: dockRight,
+          dockBottom: dockBottom,
+          coverBgAsset: widget.coverBgAsset,
+          coverLogoAsset: widget.coverLogoAsset,
+          spriteCache: _spriteCache,
+          musicController: widget.musicController,
+          morphAnimation: widget.morphAnimation,
+          morphMatrix: _morphMatrix,
+          spinAnimation: _spinController,
+          spinMatrix: _spinMatrix,
+          sheenMatrix: _sheenMatrix,
+          secondarySheenMatrix: _secondarySheenMatrix,
+          replayScaleAnimation: _replayScaleAnimation,
+          progressRingRepaint: _progressRingRepaint,
+          showSlidingPill: _pillPaintVisible,
+          pillSlideAnimation: _pillSlideAnimation,
+          onTogglePlayPause: _handleTogglePlayPause,
+          onReplay: _handleReplay,
+        ),
+        builder: (context, interactive, dockChild) => IgnorePointer(
+          ignoring: !interactive,
+          child: ExcludeSemantics(
+            excluding: !interactive,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _dockPaintVisible,
+              child: dockChild,
+              builder: (context, visible, innerChild) =>
+                  Opacity(opacity: visible ? 1.0 : 0.0, child: innerChild),
+            ),
+          ),
+        ),
+      ),
+    );
+
     return Stack(
       fit: .expand,
       children: [
+        persistentDock,
         ValueListenableBuilder<bool>(
           valueListenable: _showMorphPainter,
           builder: (context, showPainter, _) {
@@ -634,42 +690,6 @@ class _CoverMusicPlayerOverlayState()
                           willChange: true,
                         ),
                 ),
-              ),
-            );
-          },
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: _showDockedPlayer,
-          builder: (context, showDock, _) {
-            if (!showDock) return const SizedBox.shrink();
-            return Positioned(
-              right: dockRight,
-              bottom: dockBottom,
-              width: _dockWidth,
-              height: _discSize,
-              child: _DockedDvdMusicDock(
-                discSize: _discSize,
-                dockWidth: _dockWidth,
-                pillRightOverlap: _pillRightOverlap,
-                viewportSize: size,
-                dockRight: dockRight,
-                dockBottom: dockBottom,
-                coverBgAsset: widget.coverBgAsset,
-                coverLogoAsset: widget.coverLogoAsset,
-                spriteCache: _spriteCache,
-                musicController: widget.musicController,
-                morphAnimation: widget.morphAnimation,
-                morphMatrix: _morphMatrix,
-                spinAnimation: _spinController,
-                spinMatrix: _spinMatrix,
-                sheenMatrix: _sheenMatrix,
-                secondarySheenMatrix: _secondarySheenMatrix,
-                replayScaleAnimation: _replayScaleAnimation,
-                progressRingRepaint: _progressRingRepaint,
-                showSlidingPill: _showSlidingPill,
-                pillSlideAnimation: _pillSlideAnimation,
-                onTogglePlayPause: _handleTogglePlayPause,
-                onReplay: _handleReplay,
               ),
             );
           },
@@ -776,6 +796,7 @@ final class _CoverMorphPainter({
       canvas.clipRect(cardRect);
     }
 
+    canvas.drawRect(cardRect, _blackPaint);
     final bgImg = spriteCache.bgImage;
     if (bgImg != null) {
       final srcW = bgImg.width.toDouble();
@@ -785,8 +806,6 @@ final class _CoverMorphPainter({
       final cropH = curH / scale;
       final srcRect = Rect.fromLTWH((srcW - cropW) * 0.5, (srcH - cropH) * 0.5, cropW, cropH);
       canvas.drawImageRect(bgImg, srcRect, cardRect, _imagePaint);
-    } else {
-      canvas.drawRect(cardRect, _blackPaint);
     }
 
     final logoImg = spriteCache.logoImage;
@@ -961,12 +980,15 @@ class const _CoverTextFadeLayer({
 class const _CoverFallbackLayer({required final String coverBgAsset}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      coverBgAsset,
-      fit: .cover,
-      filterQuality: .medium,
-      gaplessPlayback: true,
-      errorBuilder: (context, error, stackTrace) => const ColoredBox(color: Color(0xFF000000)),
+    return ColoredBox(
+      color: const Color(0xFF000000),
+      child: Image.asset(
+        coverBgAsset,
+        fit: .cover,
+        filterQuality: .medium,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => const ColoredBox(color: Color(0xFF000000)),
+      ),
     );
   }
 }
@@ -1043,11 +1065,9 @@ class const _DockedDvdMusicDock({
             height: 44.0,
             child: ValueListenableBuilder<bool>(
               valueListenable: showSlidingPill,
-              child: slidingPill,
-              builder: (context, showPill, child) {
-                if (!showPill) return const SizedBox.shrink();
-                return ClipRect(clipper: _pillClipper, child: child);
-              },
+              child: ClipRect(clipper: _pillClipper, child: slidingPill),
+              builder: (context, showPill, child) =>
+                  Opacity(opacity: showPill ? 1.0 : 0.0, child: child),
             ),
           ),
           Positioned(
@@ -1094,7 +1114,7 @@ class const _MorphLandingTransform({
       child: child,
       builder: (context, innerChild) {
         final rawT = morphAnimation.value.clamp(0.0, 1.0);
-        if (rawT >= 0.9999) {
+        if (rawT <= 0.0 || rawT >= 0.9999) {
           morphMatrix.setIdentity();
         } else {
           final easeT = Curves.easeInOutCubic.transform(rawT);
