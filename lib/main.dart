@@ -10,6 +10,7 @@ import 'package:ojay_and_mae_invitation/src/web_interop.dart';
 Future<void> main() async {
   usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
+  WebInterop.stopActiveAudio();
 
   // Initialize Firebase concurrently so first-frame cover rendering is not blocked.
   unawaited(FirebaseBootstrap.ensureInitialized());

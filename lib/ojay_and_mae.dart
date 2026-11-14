@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ojay_and_mae_invitation/src/firebase_bootstrap.dart';
+import 'package:ojay_and_mae_invitation/src/music_player.dart';
 import 'package:ojay_and_mae_invitation/src/web_interop.dart';
 
 // ============================================================================
@@ -62,6 +63,7 @@ abstract final class InvitationAssets._() {
   static const String leaf = 'assets/images/4-Daun-Font-Mae.png';
   static const String skullBride = 'assets/images/4-Tengkorak-Mae.png';
   static const String flowerGift = 'assets/images/6-Bunga-Wedding-Gift.png';
+  static const String music = 'assets/musics/music.mp3';
 
   /// Aset kritikal di atas lipatan (cover gate) yang diprecache sebelum frame pertama.
   static const List<String> coverCritical = [coverBg, coverInitialFF];
@@ -329,12 +331,10 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   static const List<double> _estimatedSectionOffsets = [0.0, 820.0, 2100.0, 3000.0, 3750.0, 4650.0];
 
   final ScrollController _scrollController = ScrollController();
-  late final AnimationController _coverGateController;
-  late final CurvedAnimation _coverCurve;
-  late final Animation<Offset> _coverSlideAnimation;
-  late final Animation<double> _coverFadeAnimation;
+  late final InvitationMusicController _musicController;
+  late final AnimationController _coverMorphController;
 
-  bool _isOpened = false;
+  bool _isMorphComplete = false;
   int _navGeneration = 0;
 
   late final List<GlobalKey> _sectionKeys = List<GlobalKey>.generate(
@@ -346,30 +346,27 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _coverGateController = AnimationController(
+    _musicController = InvitationMusicController(assetPath: InvitationAssets.music);
+    _coverMorphController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1100),
+      duration: const Duration(milliseconds: 1150),
     );
-    _coverCurve = CurvedAnimation(parent: _coverGateController, curve: Curves.easeInOutCubic);
-    _coverSlideAnimation = Tween<Offset>(
-      begin: .zero,
-      end: const Offset(0, -1),
-    ).animate(_coverCurve);
-    _coverFadeAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(_coverCurve);
   }
 
   @override
   void dispose() {
-    _coverCurve.dispose();
-    _coverGateController.dispose();
+    _musicController.dispose();
+    _coverMorphController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _openInvitation() {
+    if (_coverMorphController.isAnimating || _isMorphComplete) return;
     HapticFeedback.mediumImpact();
-    _coverGateController.forward().then((_) {
-      if (mounted) setState(() => _isOpened = true);
+    _musicController.play();
+    _coverMorphController.forward().then((_) {
+      if (mounted) setState(() => _isMorphComplete = true);
     });
   }
 
@@ -430,18 +427,6 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
       recipientName: widget.recipientName,
     );
 
-    final Widget? coverOverlay = !_isOpened
-        ? SlideTransition(
-            position: _coverSlideAnimation,
-            child: FadeTransition(
-              opacity: _coverFadeAnimation,
-              child: RepaintBoundary(
-                child: _CoverSection(recipientName: widget.recipientName, onOpen: _openInvitation),
-              ),
-            ),
-          )
-        : null;
-
     return Scaffold(
       backgroundColor: GothicTheme.bgBlack,
       body: Stack(
@@ -460,7 +445,19 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
             )
           else
             scrollBody,
-          ?coverOverlay,
+          CoverMusicPlayerOverlay(
+            recipientName: widget.recipientName,
+            coverBgAsset: InvitationAssets.coverBg,
+            coverLogoAsset: InvitationAssets.coverInitialFF,
+            musicController: _musicController,
+            morphAnimation: _coverMorphController,
+            isMorphComplete: _isMorphComplete,
+            onOpenInvitation: _openInvitation,
+            titleScriptStyle: GothicTheme.script24,
+            coupleGothicStyle: GothicTheme.gothicAlt44,
+            guestIntroStyle: GothicTheme.script16,
+            guestNameStyle: GothicTheme.script28,
+          ),
         ],
       ),
     );
@@ -660,75 +657,6 @@ class const _NavChip({required final String label, required final VoidCallback o
           padding: const .symmetric(horizontal: 16, vertical: 8),
           child: Text(label, style: GothicTheme.sans(size: 12)),
         ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// COVER PEMBUKA
-// ============================================================================
-class const _CoverSection({required final String recipientName, required final VoidCallback onOpen})
-    extends StatelessWidget {
-  static final ButtonStyle _openButtonStyle = ElevatedButton.styleFrom(
-    backgroundColor: GothicTheme.white,
-    foregroundColor: GothicTheme.bgBlack,
-    shape: const RoundedRectangleBorder(borderRadius: .all(.circular(24))),
-    padding: const .symmetric(horizontal: 40, vertical: 4),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final displayGuest = recipientName.isNotEmpty ? recipientName : 'Tamu Undangan';
-    return ColoredBox(
-      color: GothicTheme.bgBlack,
-      child: Stack(
-        fit: .expand,
-        children: [
-          const InvitationAssetImage(assetPath: InvitationAssets.coverBg, fit: .cover),
-          Padding(
-            padding: const .symmetric(horizontal: 24, vertical: 36),
-            child: Column(
-              children: [
-                const SizedBox(height: 24),
-                const Text('Pernikahan Kami', style: GothicTheme.script24),
-                const Text('Fauzi & Fitri', style: GothicTheme.gothicAlt44),
-                const Text(
-                  'Ojay & Mae',
-                  textAlign: .center,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: .w300,
-                    color: Colors.white,
-                    height: .6,
-                    letterSpacing: 5,
-                    fontStyle: .italic,
-                  ),
-                ),
-                const Spacer(),
-                const SizedBox(
-                  width: 220,
-                  height: 220,
-                  child: InvitationAssetImage(assetPath: InvitationAssets.coverInitialFF),
-                ),
-                const SizedBox(height: 24),
-                const Spacer(),
-                const Text('Kepada Yth', style: GothicTheme.script16),
-                Text(displayGuest, textAlign: .center, style: GothicTheme.script28),
-                const SizedBox(height: 18),
-                ElevatedButton(
-                  onPressed: onOpen,
-                  style: _openButtonStyle,
-                  child: const Text(
-                    'Buka Undangan',
-                    style: TextStyle(fontSize: 18, fontWeight: .bold, letterSpacing: .5),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -2286,7 +2214,7 @@ class const _ThankYouSection() extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const .fromLTRB(24, 56, 24, 84),
+            padding: const .fromLTRB(24, 56, 24, 104),
             child: Column(
               children: [
                 const ScrollReveal(
