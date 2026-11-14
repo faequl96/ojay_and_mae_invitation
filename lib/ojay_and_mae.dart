@@ -681,17 +681,22 @@ class const _HeroSection() extends StatelessWidget {
         alignment: .center,
         children: [
           const Positioned.fill(
-            child: InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
-          ),
-          const Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: .topCenter,
-                  end: .bottomCenter,
-                  colors: [Colors.transparent, Colors.transparent, GothicTheme.bgBlack],
-                  stops: [0.0, 0.78, 1.0],
-                ),
+            child: RepaintBoundary(
+              child: Stack(
+                fit: .expand,
+                children: [
+                  InvitationAssetImage(assetPath: InvitationAssets.heroBg, fit: .cover),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: .topCenter,
+                        end: .bottomCenter,
+                        colors: [Colors.transparent, Colors.transparent, GothicTheme.bgBlack],
+                        stops: [0.0, 0.78, 1.0],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

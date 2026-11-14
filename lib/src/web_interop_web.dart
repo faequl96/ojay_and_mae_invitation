@@ -63,6 +63,16 @@ abstract final class WebInterop._() {
     } catch (_) {}
   }
 
+  /// Mulai pre-buffer audio di latar belakang setelah aset kritikal selesai.
+  static void warmUpActiveAudio() {
+    try {
+      final active = _globalActiveAudio;
+      if (active != null && active.preload != 'auto') {
+        active.preload = 'auto';
+      }
+    } catch (_) {}
+  }
+
   /// Menghentikan pemutar audio lama yang masih tersisa di JS (mis. saat Hot Restart).
   static void stopActiveAudio() {
     try {

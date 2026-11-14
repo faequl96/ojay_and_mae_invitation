@@ -78,61 +78,106 @@ final class _MorphRepaintSignal() extends ChangeNotifier {
   void notify() => notifyListeners();
 }
 
-/// Cache tekstur GPU hasil pra-render agar morph & putaran DVD bebas shader/blur per frame.
+/// Cache tekstur GPU ringan agar seluruh fase morph & putaran DVD bebas blur shader,
+/// gradient berulang, dan clip oval per-frame.
 final class _DvdSpriteCache() {
-  static const int _shadowSize = 96;
-  static const int _sheenSize = 192;
-  static const int _groovesSize = 192;
-  static const int _discBgSize = 384;
-  static const int _discLogoSize = 192;
+  static const int _shadowNineSize = 64;
+  static const int _shadowCircleSize = 96;
+  static const int _sheenSize = 128;
+  static const int _groovesSize = 160;
+  static const int _discArtSize = 256;
 
-  ImageInfo? bgImageInfo;
-  ImageInfo? logoImageInfo;
-  ui.Image? discBgSprite;
-  ui.Image? discLogoSprite;
+  static const List<(double, Color)> _primaryCones = [
+    (0.00, Colors.transparent),
+    (0.04, Color.fromRGBO(96, 226, 255, 0.18)),
+    (0.09, Color.fromRGBO(110, 236, 255, 0.44)),
+    (0.14, Color.fromRGBO(216, 248, 255, 0.60)),
+    (0.17, Color.fromRGBO(255, 255, 255, 0.74)),
+    (0.21, Color.fromRGBO(236, 174, 255, 0.48)),
+    (0.26, Color.fromRGBO(255, 218, 150, 0.28)),
+    (0.33, Colors.transparent),
+    (0.48, Colors.transparent),
+    (0.54, Color.fromRGBO(96, 226, 255, 0.16)),
+    (0.59, Color.fromRGBO(110, 236, 255, 0.38)),
+    (0.64, Color.fromRGBO(216, 248, 255, 0.54)),
+    (0.67, Color.fromRGBO(255, 255, 255, 0.66)),
+    (0.71, Color.fromRGBO(236, 174, 255, 0.42)),
+    (0.76, Color.fromRGBO(255, 218, 150, 0.24)),
+    (0.83, Colors.transparent),
+    (1.00, Colors.transparent),
+  ];
+
+  static const List<(double, Color)> _secondaryCones = [
+    (0.00, Colors.transparent),
+    (0.10, Colors.transparent),
+    (0.16, Color.fromRGBO(255, 168, 222, 0.26)),
+    (0.21, Color.fromRGBO(124, 244, 255, 0.42)),
+    (0.25, Color.fromRGBO(244, 252, 255, 0.40)),
+    (0.29, Color.fromRGBO(255, 228, 152, 0.30)),
+    (0.36, Colors.transparent),
+    (0.60, Colors.transparent),
+    (0.66, Color.fromRGBO(255, 168, 222, 0.24)),
+    (0.71, Color.fromRGBO(124, 244, 255, 0.38)),
+    (0.75, Color.fromRGBO(244, 252, 255, 0.36)),
+    (0.79, Color.fromRGBO(255, 228, 152, 0.26)),
+    (0.86, Colors.transparent),
+    (1.00, Colors.transparent),
+  ];
+
+  ImageInfo? _bgImageInfo;
+  ImageInfo? _logoImageInfo;
+  ui.Image? discArtSprite;
 
   ui.Image? shadowNineImage;
+  ui.Image? shadowCircleImage;
   ui.Image? primarySheenImage;
   ui.Image? secondarySheenImage;
   ui.Image? groovesActiveImage;
   ui.Image? groovesPausedImage;
 
   bool _proceduralReady = false;
+  bool _discArtDirty = false;
   bool _disposed = false;
 
-  ui.Image? get bgImage => bgImageInfo?.image;
-  ui.Image? get logoImage => logoImageInfo?.image;
+  ui.Image? get bgImage => _bgImageInfo?.image;
+  ui.Image? get logoImage => _logoImageInfo?.image;
 
   void setBgImageInfo(ImageInfo info) {
     if (_disposed) return;
     final cloned = info.clone();
-    bgImageInfo?.dispose();
-    bgImageInfo = cloned;
-    discBgSprite?.dispose();
-    discBgSprite = _bakeDiscBgSprite(cloned.image);
+    _bgImageInfo?.dispose();
+    _bgImageInfo = cloned;
+    _discArtDirty = true;
   }
 
   void setLogoImageInfo(ImageInfo info) {
     if (_disposed) return;
     final cloned = info.clone();
-    logoImageInfo?.dispose();
-    logoImageInfo = cloned;
-    discLogoSprite?.dispose();
-    discLogoSprite = _bakeDiscLogoSprite(cloned.image);
+    _logoImageInfo?.dispose();
+    _logoImageInfo = cloned;
+    _discArtDirty = true;
   }
 
-  void ensureProceduralSprites() {
-    if (_disposed || _proceduralReady) return;
-    _proceduralReady = true;
+  void ensureSpritesReady() {
+    if (_disposed) return;
+    if (!_proceduralReady) {
+      _proceduralReady = true;
+      shadowNineImage = _bakeShadowNineImage();
+      shadowCircleImage = _bakeShadowCircleImage();
+      primarySheenImage = _bakeSheenImage(_primaryCones);
+      secondarySheenImage = _bakeSheenImage(
+        _secondaryCones,
+        rotation: const GradientRotation(math.pi * 0.48),
+      );
+      groovesActiveImage = _bakeGroovesImage(isActive: true);
+      groovesPausedImage = _bakeGroovesImage(isActive: false);
+    }
 
-    shadowNineImage = _bakeShadowNineImage();
-    primarySheenImage = _bakeSheenImage(_DvdSpecularSheen._primaryCones);
-    secondarySheenImage = _bakeSheenImage(
-      _DvdSpecularSheen._secondaryCones,
-      rotation: const GradientRotation(math.pi * 0.48),
-    );
-    groovesActiveImage = _bakeGroovesImage(isActive: true);
-    groovesPausedImage = _bakeGroovesImage(isActive: false);
+    if (_discArtDirty && _bgImageInfo != null) {
+      _discArtDirty = false;
+      discArtSprite?.dispose();
+      discArtSprite = _bakeDiscArtSprite(_bgImageInfo!.image, _logoImageInfo?.image);
+    }
   }
 
   ui.Image? _rasterizePicture(int width, int height, void Function(Canvas canvas, Size size) draw) {
@@ -150,48 +195,56 @@ final class _DvdSpriteCache() {
     }
   }
 
-  ui.Image? _bakeDiscBgSprite(ui.Image src) {
-    return _rasterizePicture(_discBgSize, _discBgSize, (canvas, size) {
-      final srcW = src.width.toDouble();
-      final srcH = src.height.toDouble();
-      final scale = math.max(size.width / srcW, size.height / srcH);
-      final cropW = size.width / scale;
-      final cropH = size.height / scale;
-      final srcRect = Rect.fromLTWH((srcW - cropW) * 0.5, (srcH - cropH) * 0.5, cropW, cropH);
-      canvas.drawImageRect(src, srcRect, Offset.zero & size, Paint()..filterQuality = .medium);
-    });
-  }
+  /// Gabungkan background cover + logo + circular clip anti-alias menjadi 1 sprite DVD
+  /// sehingga piringan berputar tidak lagi memerlukan ClipOval ataupun multi-draw per frame.
+  ui.Image? _bakeDiscArtSprite(ui.Image bg, ui.Image? logo) {
+    return _rasterizePicture(_discArtSize, _discArtSize, (canvas, size) {
+      final clipPath = Path()..addOval(Offset.zero & size);
+      canvas.clipPath(clipPath);
 
-  ui.Image? _bakeDiscLogoSprite(ui.Image src) {
-    return _rasterizePicture(_discLogoSize, _discLogoSize, (canvas, size) {
-      final srcW = src.width.toDouble();
-      final srcH = src.height.toDouble();
-      final scale = math.min(size.width / srcW, size.height / srcH);
-      final dstW = srcW * scale;
-      final dstH = srcH * scale;
-      final dstRect = Rect.fromCenter(
-        center: Offset(size.width * 0.5, size.height * 0.5),
-        width: dstW,
-        height: dstH,
-      );
-      canvas.drawImageRect(
-        src,
-        Rect.fromLTWH(0, 0, srcW, srcH),
-        dstRect,
-        Paint()..filterQuality = .medium,
-      );
+      final bgW = bg.width.toDouble();
+      final bgH = bg.height.toDouble();
+      final bgScale = math.max(size.width / bgW, size.height / bgH);
+      final cropW = size.width / bgScale;
+      final cropH = size.height / bgScale;
+      final bgSrc = Rect.fromLTWH((bgW - cropW) * 0.5, (bgH - cropH) * 0.5, cropW, cropH);
+      final paint = Paint()..filterQuality = .medium;
+      canvas.drawImageRect(bg, bgSrc, Offset.zero & size, paint);
+
+      if (logo != null) {
+        final logoW = logo.width.toDouble();
+        final logoH = logo.height.toDouble();
+        final targetLogoBox = size.width * (38.0 / 62.0);
+        final logoScale = math.min(targetLogoBox / logoW, targetLogoBox / logoH);
+        final dstRect = Rect.fromCenter(
+          center: Offset(size.width * 0.5, size.height * 0.5),
+          width: logoW * logoScale,
+          height: logoH * logoScale,
+        );
+        canvas.drawImageRect(logo, Rect.fromLTWH(0, 0, logoW, logoH), dstRect, paint);
+      }
     });
   }
 
   ui.Image? _bakeShadowNineImage() {
-    return _rasterizePicture(_shadowSize, _shadowSize, (canvas, size) {
+    return _rasterizePicture(_shadowNineSize, _shadowNineSize, (canvas, size) {
       final paint = Paint()
-        ..color = const Color.fromRGBO(0, 0, 0, 0.72)
-        ..maskFilter = const ui.MaskFilter.blur(.normal, 6.5);
+        ..color = const Color.fromRGBO(0, 0, 0, 0.70)
+        ..maskFilter = const ui.MaskFilter.blur(.normal, 5.5);
       canvas.drawRRect(
-        RRect.fromRectAndRadius(const Rect.fromLTWH(20, 20, 56, 56), const Radius.circular(28)),
+        RRect.fromRectAndRadius(const Rect.fromLTWH(16, 16, 32, 32), const Radius.circular(16)),
         paint,
       );
+    });
+  }
+
+  ui.Image? _bakeShadowCircleImage() {
+    return _rasterizePicture(_shadowCircleSize, _shadowCircleSize, (canvas, size) {
+      final half = size.width * 0.5;
+      final paint = Paint()
+        ..color = const Color.fromRGBO(0, 0, 0, 0.72)
+        ..maskFilter = const ui.MaskFilter.blur(.normal, 8.0);
+      canvas.drawCircle(Offset(half, half), 28.0, paint);
     });
   }
 
@@ -212,7 +265,6 @@ final class _DvdSpriteCache() {
       _DvdGroovesPainter.paintGrooves(
         canvas: canvas,
         size: size,
-        intensity: 1.0,
         isActive: isActive,
         strokeScale: size.width / 62.0,
         groovePaint: Paint()
@@ -220,10 +272,6 @@ final class _DvdSpriteCache() {
           ..isAntiAlias = true,
         rimPaint: Paint()
           ..style = .stroke
-          ..isAntiAlias = true,
-        specularArcPaint: Paint()
-          ..style = .stroke
-          ..strokeCap = .round
           ..isAntiAlias = true,
         hubRingPaint: Paint()
           ..style = .fill
@@ -238,16 +286,16 @@ final class _DvdSpriteCache() {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    bgImageInfo?.dispose();
-    bgImageInfo = null;
-    logoImageInfo?.dispose();
-    logoImageInfo = null;
-    discBgSprite?.dispose();
-    discBgSprite = null;
-    discLogoSprite?.dispose();
-    discLogoSprite = null;
+    _bgImageInfo?.dispose();
+    _bgImageInfo = null;
+    _logoImageInfo?.dispose();
+    _logoImageInfo = null;
+    discArtSprite?.dispose();
+    discArtSprite = null;
     shadowNineImage?.dispose();
     shadowNineImage = null;
+    shadowCircleImage?.dispose();
+    shadowCircleImage = null;
     primarySheenImage?.dispose();
     primarySheenImage = null;
     secondarySheenImage?.dispose();
@@ -289,13 +337,15 @@ class _CoverMusicPlayerOverlayState()
   late final AnimationController _spinController;
   late final AnimationController _replayPulseController;
   late final Animation<double> _replayScaleAnimation;
-  late CurvedAnimation _buttonFadeCurve;
-  late Animation<double> _buttonFadeAnimation;
+  late CurvedAnimation _textFadeCurve;
+  late Animation<double> _textFadeAnimation;
+  late CurvedAnimation _pillSlideCurve;
+  late Animation<Offset> _pillSlideAnimation;
 
+  final Matrix4 _morphMatrix = Matrix4.identity();
   final Matrix4 _spinMatrix = Matrix4.identity();
   final Matrix4 _sheenMatrix = Matrix4.identity();
   final Matrix4 _secondarySheenMatrix = Matrix4.identity();
-  final Matrix4 _morphEndMatrix = Matrix4.identity();
 
   final _MorphRepaintSignal _morphRepaintSignal = _MorphRepaintSignal();
   final _DvdSpriteCache _spriteCache = _DvdSpriteCache();
@@ -304,8 +354,9 @@ class _CoverMusicPlayerOverlayState()
 
   final ValueNotifier<bool> _showCoverText = ValueNotifier<bool>(true);
   final ValueNotifier<bool> _isMorphActive = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _showMorphPainter = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> _showDockedPlayer = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _showSlidingPill = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> _useWidgetDiscPhase = ValueNotifier<bool>(false);
 
   ImageStream? _bgStream;
   ImageStreamListener? _bgListener;
@@ -314,6 +365,7 @@ class _CoverMusicPlayerOverlayState()
   String? _resolvedBgAsset;
   String? _resolvedLogoAsset;
   double? _resolvedDpr;
+  bool _spriteBakeScheduled = false;
 
   @override
   void initState() {
@@ -334,19 +386,13 @@ class _CoverMusicPlayerOverlayState()
       ),
     ]).animate(_replayPulseController);
 
-    _initButtonFadeAnimation();
-    _rebuildMorphPainterRepaint();
+    _initMorphIntervals();
+    _rebuildListenableMerges();
 
     widget.morphAnimation.addListener(_onMorphTick);
     widget.musicController.playbackStateListenable.addListener(_syncDiscSpin);
     _onMorphTick();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _spriteCache.ensureProceduralSprites();
-        _morphRepaintSignal.notify();
-      }
-    });
+    _scheduleSpriteBake();
   }
 
   @override
@@ -362,8 +408,8 @@ class _CoverMusicPlayerOverlayState()
     if (oldWidget.morphAnimation != widget.morphAnimation) {
       oldWidget.morphAnimation.removeListener(_onMorphTick);
       widget.morphAnimation.addListener(_onMorphTick);
-      _buttonFadeCurve.dispose();
-      _initButtonFadeAnimation();
+      _disposeMorphIntervals();
+      _initMorphIntervals();
       repaintDirty = true;
     }
     if (oldWidget.musicController != widget.musicController) {
@@ -372,7 +418,7 @@ class _CoverMusicPlayerOverlayState()
       repaintDirty = true;
     }
     if (repaintDirty) {
-      _rebuildMorphPainterRepaint();
+      _rebuildListenableMerges();
     }
     if (oldWidget.coverBgAsset != widget.coverBgAsset ||
         oldWidget.coverLogoAsset != widget.coverLogoAsset) {
@@ -381,26 +427,48 @@ class _CoverMusicPlayerOverlayState()
     _onMorphTick();
   }
 
-  void _initButtonFadeAnimation() {
-    _buttonFadeCurve = CurvedAnimation(
+  void _initMorphIntervals() {
+    _textFadeCurve = CurvedAnimation(
       parent: widget.morphAnimation,
       curve: const Interval(0.0, 0.26, curve: Curves.easeOutCubic),
     );
-    _buttonFadeAnimation = ReverseAnimation(_buttonFadeCurve);
+    _textFadeAnimation = ReverseAnimation(_textFadeCurve);
+
+    _pillSlideCurve = CurvedAnimation(
+      parent: widget.morphAnimation,
+      curve: const Interval(0.72, 1.0, curve: Curves.easeOutCubic),
+    );
+    _pillSlideAnimation = Tween<Offset>(
+      begin: const Offset(0.75, 0.0),
+      end: Offset.zero,
+    ).animate(_pillSlideCurve);
   }
 
-  void _rebuildMorphPainterRepaint() {
-    _morphPainterRepaint = Listenable.merge([
-      widget.morphAnimation,
-      _spinController,
-      widget.musicController.progressListenable,
-      widget.musicController.playbackStateListenable,
-      _morphRepaintSignal,
-    ]);
+  void _disposeMorphIntervals() {
+    _textFadeCurve.dispose();
+    _pillSlideCurve.dispose();
+  }
+
+  void _rebuildListenableMerges() {
+    _morphPainterRepaint = Listenable.merge([widget.morphAnimation, _morphRepaintSignal]);
     _progressRingRepaint = Listenable.merge([
       widget.morphAnimation,
       widget.musicController.progressListenable,
     ]);
+  }
+
+  void _scheduleSpriteBake() {
+    if (_spriteBakeScheduled) return;
+    _spriteBakeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _spriteBakeScheduled = false;
+      if (!mounted) return;
+      _spriteCache.ensureSpritesReady();
+      _morphRepaintSignal.notify();
+      if (widget.isMorphComplete || _showDockedPlayer.value) {
+        setState(() {});
+      }
+    });
   }
 
   void _resolveCoverAssets() {
@@ -435,22 +503,16 @@ class _CoverMusicPlayerOverlayState()
     final hadImage = _spriteCache.bgImage != null;
     _spriteCache.setBgImageInfo(info);
     if (!synchronousCall) {
-      _morphRepaintSignal.notify();
-      if (!hadImage || widget.isMorphComplete) {
-        setState(() {});
-      }
+      _scheduleSpriteBake();
+      if (!hadImage) setState(() {});
     }
   }
 
   void _onLogoImage(ImageInfo info, bool synchronousCall) {
     if (!mounted) return;
-    final hadImage = _spriteCache.logoImage != null;
     _spriteCache.setLogoImageInfo(info);
     if (!synchronousCall) {
-      _morphRepaintSignal.notify();
-      if (!hadImage || widget.isMorphComplete) {
-        setState(() {});
-      }
+      _scheduleSpriteBake();
     }
   }
 
@@ -478,13 +540,15 @@ class _CoverMusicPlayerOverlayState()
 
   void _onMorphTick() {
     final rawT = widget.morphAnimation.value;
-    if (rawT > 0.0) {
-      _spriteCache.ensureProceduralSprites();
+    if (rawT > 0.0 || widget.isMorphComplete) {
+      _spriteCache.ensureSpritesReady();
     }
-    _showCoverText.value = rawT < 0.26;
-    _isMorphActive.value = rawT > 0.0;
-    _showSlidingPill.value = rawT >= 0.72;
-    _useWidgetDiscPhase.value = rawT >= 0.84;
+    final completed = widget.isMorphComplete;
+    _showCoverText.value = !completed && rawT < 0.26;
+    _isMorphActive.value = !completed && rawT > 0.0;
+    _showMorphPainter.value = !completed && rawT < 0.60;
+    _showDockedPlayer.value = completed || rawT >= 0.60;
+    _showSlidingPill.value = completed || rawT >= 0.72;
     _syncDiscSpin();
   }
 
@@ -523,13 +587,14 @@ class _CoverMusicPlayerOverlayState()
     widget.musicController.playbackStateListenable.removeListener(_syncDiscSpin);
     _detachBgStream();
     _detachLogoStream();
-    _buttonFadeCurve.dispose();
+    _disposeMorphIntervals();
     _spinController.dispose();
     _replayPulseController.dispose();
     _showCoverText.dispose();
     _isMorphActive.dispose();
+    _showMorphPainter.dispose();
+    _showDockedPlayer.dispose();
     _showSlidingPill.dispose();
-    _useWidgetDiscPhase.dispose();
     _morphRepaintSignal.dispose();
     _spriteCache.dispose();
     super.dispose();
@@ -539,142 +604,90 @@ class _CoverMusicPlayerOverlayState()
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final safePadding = MediaQuery.paddingOf(context);
-    final dpr = MediaQuery.devicePixelRatioOf(context);
     final baseMargin = size.width >= 960 ? 24.0 : 16.0;
     final dockRight = baseMargin + safePadding.right;
     final dockBottom = baseMargin + safePadding.bottom;
 
-    if (widget.isMorphComplete) {
-      _spriteCache.ensureProceduralSprites();
-      return Positioned(
-        right: dockRight,
-        bottom: dockBottom,
-        child: _DockedDvdMusicDock(
-          discSize: _discSize,
-          dockWidth: _dockWidth,
-          pillRightOverlap: _pillRightOverlap,
-          coverBgAsset: widget.coverBgAsset,
-          coverLogoAsset: widget.coverLogoAsset,
-          spriteCache: _spriteCache,
-          musicController: widget.musicController,
-          spinAnimation: _spinController,
-          spinMatrix: _spinMatrix,
-          sheenMatrix: _sheenMatrix,
-          secondarySheenMatrix: _secondarySheenMatrix,
-          replayScaleAnimation: _replayScaleAnimation,
-          onTogglePlayPause: _handleTogglePlayPause,
-          onReplay: _handleReplay,
-        ),
-      );
-    }
-
     return Stack(
       fit: .expand,
       children: [
-        if (_spriteCache.bgImage == null)
-          Positioned.fill(
-            child: IgnorePointer(child: _CoverArtworkLayer(coverBgAsset: widget.coverBgAsset)),
-          ),
-
         ValueListenableBuilder<bool>(
-          valueListenable: _useWidgetDiscPhase,
-          builder: (context, useWidgetDisc, _) {
-            if (useWidgetDisc) return const SizedBox.shrink();
+          valueListenable: _showMorphPainter,
+          builder: (context, showPainter, _) {
+            if (!showPainter) return const SizedBox.shrink();
             return Positioned.fill(
               child: IgnorePointer(
                 child: RepaintBoundary(
-                  child: CustomPaint(
-                    painter: _CoverMorphPainter(
-                      repaint: _morphPainterRepaint,
-                      morphAnimation: widget.morphAnimation,
-                      spinAnimation: _spinController,
-                      musicController: widget.musicController,
-                      spriteCache: _spriteCache,
-                      dockRight: dockRight,
-                      dockBottom: dockBottom,
-                      discSize: _discSize,
-                      devicePixelRatio: dpr,
-                    ),
-                    isComplex: true,
-                    willChange: true,
-                  ),
+                  child: _spriteCache.bgImage == null
+                      ? _CoverFallbackLayer(coverBgAsset: widget.coverBgAsset)
+                      : CustomPaint(
+                          painter: _CoverMorphPainter(
+                            repaint: _morphPainterRepaint,
+                            morphAnimation: widget.morphAnimation,
+                            musicController: widget.musicController,
+                            spriteCache: _spriteCache,
+                            dockRight: dockRight,
+                            dockBottom: dockBottom,
+                            discSize: _discSize,
+                          ),
+                          isComplex: true,
+                          willChange: true,
+                        ),
                 ),
               ),
             );
           },
         ),
-
         ValueListenableBuilder<bool>(
-          valueListenable: _showSlidingPill,
-          builder: (context, showPill, _) {
-            if (!showPill) return const SizedBox.shrink();
-            return Positioned(
-              right: dockRight + _pillRightOverlap,
-              bottom: dockBottom + (_discSize - 44.0) * 0.5,
-              width: _dockWidth - _pillRightOverlap,
-              height: 44.0,
-              child: _SlidingPillReveal(
-                morphAnimation: widget.morphAnimation,
-                child: RepaintBoundary(
-                  child: _SlidingControlPillBody(
-                    musicController: widget.musicController,
-                    onTogglePlayPause: _handleTogglePlayPause,
-                    onReplay: _handleReplay,
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-
-        ValueListenableBuilder<bool>(
-          valueListenable: _useWidgetDiscPhase,
-          builder: (context, useWidgetDisc, _) {
-            if (!useWidgetDisc) return const SizedBox.shrink();
+          valueListenable: _showDockedPlayer,
+          builder: (context, showDock, _) {
+            if (!showDock) return const SizedBox.shrink();
             return Positioned(
               right: dockRight,
               bottom: dockBottom,
-              width: _discSize,
+              width: _dockWidth,
               height: _discSize,
-              child: _MorphEndDiscOverlay(
-                morphAnimation: widget.morphAnimation,
-                morphEndMatrix: _morphEndMatrix,
-                progressRingRepaint: _progressRingRepaint,
+              child: _DockedDvdMusicDock(
+                discSize: _discSize,
+                dockWidth: _dockWidth,
+                pillRightOverlap: _pillRightOverlap,
                 viewportSize: size,
                 dockRight: dockRight,
                 dockBottom: dockBottom,
-                discSize: _discSize,
                 coverBgAsset: widget.coverBgAsset,
                 coverLogoAsset: widget.coverLogoAsset,
                 spriteCache: _spriteCache,
                 musicController: widget.musicController,
+                morphAnimation: widget.morphAnimation,
+                morphMatrix: _morphMatrix,
                 spinAnimation: _spinController,
                 spinMatrix: _spinMatrix,
                 sheenMatrix: _sheenMatrix,
                 secondarySheenMatrix: _secondarySheenMatrix,
-                onTapDisc: _handleTogglePlayPause,
+                replayScaleAnimation: _replayScaleAnimation,
+                progressRingRepaint: _progressRingRepaint,
+                showSlidingPill: _showSlidingPill,
+                pillSlideAnimation: _pillSlideAnimation,
+                onTogglePlayPause: _handleTogglePlayPause,
+                onReplay: _handleReplay,
               ),
             );
           },
         ),
-
         ValueListenableBuilder<bool>(
           valueListenable: _showCoverText,
           builder: (context, showText, _) {
             if (!showText) return const SizedBox.shrink();
             return Positioned.fill(
-              child: RepaintBoundary(
-                child: _CoverTextFadeLayer(
-                  morphAnimation: widget.morphAnimation,
-                  isMorphActive: _isMorphActive,
-                  buttonFadeAnimation: _buttonFadeAnimation,
-                  recipientName: widget.recipientName,
-                  titleScriptStyle: widget.titleScriptStyle,
-                  coupleGothicStyle: widget.coupleGothicStyle,
-                  guestIntroStyle: widget.guestIntroStyle,
-                  guestNameStyle: widget.guestNameStyle,
-                  onOpenInvitation: widget.onOpenInvitation,
-                ),
+              child: _CoverTextFadeLayer(
+                textFadeAnimation: _textFadeAnimation,
+                isMorphActive: _isMorphActive,
+                recipientName: widget.recipientName,
+                titleScriptStyle: widget.titleScriptStyle,
+                coupleGothicStyle: widget.coupleGothicStyle,
+                guestIntroStyle: widget.guestIntroStyle,
+                guestNameStyle: widget.guestNameStyle,
+                onOpenInvitation: widget.onOpenInvitation,
               ),
             );
           },
@@ -687,35 +700,25 @@ class _CoverMusicPlayerOverlayState()
 final class _CoverMorphPainter({
   required Listenable repaint,
   required final Animation<double> morphAnimation,
-  required final Animation<double> spinAnimation,
   required final InvitationMusicController musicController,
   required final _DvdSpriteCache spriteCache,
   required final double dockRight,
   required final double dockBottom,
   required final double discSize,
-  required final double devicePixelRatio,
 }) extends CustomPainter {
   this : super(repaint: repaint);
 
-  static const Rect _shadowNineCenter = Rect.fromLTWH(46, 46, 4, 4);
-  static const double _shadowNinePad = 20.0;
+  static const Rect _shadowNineCenter = Rect.fromLTWH(30, 30, 4, 4);
+  static const double _shadowNinePad = 16.0;
 
   final Paint _scrimPaint = Paint()..style = .fill;
   final Paint _shadowPaint = Paint()..filterQuality = .low;
   final Paint _blackPaint = Paint()
     ..color = Colors.black
     ..style = .fill;
-  final Paint _imagePaint = Paint()..filterQuality = .low;
+  // FilterQuality.medium mengaktifkan hardware GPU mipmap agar downscale 1080x1920 mulus.
+  final Paint _imagePaint = Paint()..filterQuality = .medium;
   final Paint _fadeSpritePaint = Paint()..filterQuality = .low;
-  final Paint _ringTrackPaint = Paint()
-    ..style = .stroke
-    ..strokeWidth = 2.0
-    ..isAntiAlias = true;
-  final Paint _ringArcPaint = Paint()
-    ..style = .stroke
-    ..strokeWidth = 2.0
-    ..strokeCap = .round
-    ..isAntiAlias = true;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -727,10 +730,11 @@ final class _CoverMorphPainter({
     final easeT = Curves.easeInOutCubic.transform(rawT);
     final squareT = Curves.easeInOutCubic.transform((rawT / 0.60).clamp(0.0, 1.0));
     final roundT = Curves.easeInOutCubic.transform(((rawT - 0.03) / 0.55).clamp(0.0, 1.0));
-    final dvdDetailsT = Curves.easeOutCubic.transform(((rawT - 0.28) / 0.50).clamp(0.0, 1.0));
-    final progressRingAlpha = Curves.easeOut.transform(((rawT - 0.84) / 0.16).clamp(0.0, 1.0));
+    final dvdDetailsT = Curves.easeOutCubic.transform(((rawT - 0.28) / 0.32).clamp(0.0, 1.0));
     final scrimAlpha = (1.0 - Curves.easeOutCubic.transform((rawT / 0.52).clamp(0.0, 1.0))) * 0.88;
-    final shadowAlpha = Curves.easeOutCubic.transform(((rawT - 0.10) / 0.50).clamp(0.0, 1.0));
+    final shadowAlpha = rawT <= 0.16
+        ? 0.0
+        : Curves.easeOutCubic.transform(((rawT - 0.16) / 0.44).clamp(0.0, 1.0));
 
     if (rawT > 0.0 && scrimAlpha > 0.005) {
       _scrimPaint.color = Colors.black.withValues(alpha: scrimAlpha);
@@ -753,7 +757,7 @@ final class _CoverMorphPainter({
     final cy = ui.lerpDouble(height * 0.5, targetCy, posYFactor)!;
     final cardRect = Rect.fromCenter(center: Offset(cx, cy), width: curW, height: curH);
     final radius = math.min(curW, curH) * 0.5 * roundT;
-    final logoSize = ui.lerpDouble(initialLogoSize, 38.0, easeT)!;
+    final logoSize = ui.lerpDouble(initialLogoSize, baseSide * (38.0 / discSize), squareT)!;
     final logoYOffset = ui.lerpDouble(-12.0, 0.0, squareT)!;
 
     if (shadowAlpha > 0.01) {
@@ -772,27 +776,7 @@ final class _CoverMorphPainter({
       canvas.clipRect(cardRect);
     }
 
-    canvas.drawRect(cardRect, _blackPaint);
-
-    final spinValue = spinAnimation.value;
-    final spinAngle = spinValue * 2.0 * math.pi;
-    final hasSpin = spinAngle != 0.0;
-    if (hasSpin) {
-      canvas.save();
-      canvas.translate(cx, cy);
-      canvas.rotate(spinAngle);
-      canvas.translate(-cx, -cy);
-    }
-
-    final discBgSprite = spriteCache.discBgSprite;
-    final discLogoSprite = spriteCache.discLogoSprite;
-    final useDiscSprites =
-        squareT >= 0.999 &&
-        curW * devicePixelRatio <= 540.0 &&
-        discBgSprite != null &&
-        discLogoSprite != null;
-
-    final bgImg = useDiscSprites ? discBgSprite : spriteCache.bgImage;
+    final bgImg = spriteCache.bgImage;
     if (bgImg != null) {
       final srcW = bgImg.width.toDouble();
       final srcH = bgImg.height.toDouble();
@@ -801,9 +785,11 @@ final class _CoverMorphPainter({
       final cropH = curH / scale;
       final srcRect = Rect.fromLTWH((srcW - cropW) * 0.5, (srcH - cropH) * 0.5, cropW, cropH);
       canvas.drawImageRect(bgImg, srcRect, cardRect, _imagePaint);
+    } else {
+      canvas.drawRect(cardRect, _blackPaint);
     }
 
-    final logoImg = useDiscSprites ? discLogoSprite : spriteCache.logoImage;
+    final logoImg = spriteCache.logoImage;
     if (logoImg != null) {
       final srcW = logoImg.width.toDouble();
       final srcH = logoImg.height.toDouble();
@@ -814,10 +800,6 @@ final class _CoverMorphPainter({
         height: srcH * scale,
       );
       canvas.drawImageRect(logoImg, Rect.fromLTWH(0, 0, srcW, srcH), dstRect, _imagePaint);
-    }
-
-    if (hasSpin) {
-      canvas.restore();
     }
 
     if (dvdDetailsT > 0.01) {
@@ -831,68 +813,34 @@ final class _CoverMorphPainter({
 
       final primarySheen = spriteCache.primarySheenImage;
       if (primarySheen != null) {
-        final sheenSrc = Rect.fromLTWH(
-          0,
-          0,
-          primarySheen.width.toDouble(),
-          primarySheen.height.toDouble(),
+        canvas.drawImageRect(
+          primarySheen,
+          Rect.fromLTWH(0, 0, primarySheen.width.toDouble(), primarySheen.height.toDouble()),
+          discSquare,
+          _fadeSpritePaint,
         );
-        canvas.save();
-        canvas.translate(cx, cy);
-        canvas.rotate(spinValue * 4.0 * math.pi);
-        canvas.translate(-cx, -cy);
-        canvas.drawImageRect(primarySheen, sheenSrc, discSquare, _fadeSpritePaint);
-        canvas.restore();
       }
 
       final secondarySheen = spriteCache.secondarySheenImage;
       if (secondarySheen != null) {
-        final sheenSrc = Rect.fromLTWH(
-          0,
-          0,
-          secondarySheen.width.toDouble(),
-          secondarySheen.height.toDouble(),
+        canvas.drawImageRect(
+          secondarySheen,
+          Rect.fromLTWH(0, 0, secondarySheen.width.toDouble(), secondarySheen.height.toDouble()),
+          discSquare,
+          _fadeSpritePaint,
         );
-        canvas.save();
-        canvas.translate(cx, cy);
-        canvas.rotate(spinValue * -2.0 * math.pi);
-        canvas.translate(-cx, -cy);
-        canvas.drawImageRect(secondarySheen, sheenSrc, discSquare, _fadeSpritePaint);
-        canvas.restore();
       }
 
       final groovesImg = musicController.isPlaying
           ? spriteCache.groovesActiveImage
           : spriteCache.groovesPausedImage;
       if (groovesImg != null) {
-        final groovesSrc = Rect.fromLTWH(
-          0,
-          0,
-          groovesImg.width.toDouble(),
-          groovesImg.height.toDouble(),
+        canvas.drawImageRect(
+          groovesImg,
+          Rect.fromLTWH(0, 0, groovesImg.width.toDouble(), groovesImg.height.toDouble()),
+          discSquare,
+          _fadeSpritePaint,
         );
-        canvas.drawImageRect(groovesImg, groovesSrc, discSquare, _fadeSpritePaint);
-      }
-    }
-
-    if (progressRingAlpha > 0.01) {
-      final ringRadius = math.min(curW, curH) * 0.5 - 1.2;
-      if (ringRadius > 2.0) {
-        final center = Offset(cx, cy);
-        _ringTrackPaint.color = Colors.white.withValues(alpha: 0.14 * progressRingAlpha);
-        canvas.drawCircle(center, ringRadius, _ringTrackPaint);
-
-        final clamped = musicController.progress.clamp(0.0, 1.0);
-        if (clamped > 0.002) {
-          _ringArcPaint.color = Colors.white.withValues(alpha: 0.88 * progressRingAlpha);
-          canvas.drawArc(
-            Rect.fromCircle(center: center, radius: ringRadius),
-            -math.pi * 0.5,
-            clamped * 2.0 * math.pi,
-            false,
-            _ringArcPaint,
-          );
-        }
       }
     }
 
@@ -902,19 +850,18 @@ final class _CoverMorphPainter({
   @override
   bool shouldRepaint(_CoverMorphPainter oldDelegate) =>
       oldDelegate.morphAnimation != morphAnimation ||
-      oldDelegate.spinAnimation != spinAnimation ||
       oldDelegate.musicController != musicController ||
       oldDelegate.spriteCache != spriteCache ||
       oldDelegate.dockRight != dockRight ||
       oldDelegate.dockBottom != dockBottom ||
-      oldDelegate.discSize != discSize ||
-      oldDelegate.devicePixelRatio != devicePixelRatio;
+      oldDelegate.discSize != discSize;
 }
 
+/// Overlay teks cover berbasis dua RepaintBoundary statis ringkas + FadeTransition.
+/// Tanpa rebuild teks per frame dan tanpa Transform.scale agar atlas glif TTF tidak di-raster ulang.
 class const _CoverTextFadeLayer({
-  required final Animation<double> morphAnimation,
+  required final Animation<double> textFadeAnimation,
   required final ValueListenable<bool> isMorphActive,
-  required final Animation<double> buttonFadeAnimation,
   required final String recipientName,
   required final TextStyle titleScriptStyle,
   required final TextStyle coupleGothicStyle,
@@ -922,139 +869,87 @@ class const _CoverTextFadeLayer({
   required final TextStyle guestNameStyle,
   required final VoidCallback onOpenInvitation,
 }) extends StatelessWidget {
-  static const _openButtonShape = RoundedRectangleBorder(borderRadius: .all(.circular(24)));
-  static const _openButtonPadding = EdgeInsets.symmetric(horizontal: 40, vertical: 4);
-  static const _openButtonLabel = Text(
-    'Buka Undangan',
-    style: TextStyle(fontSize: 18, fontWeight: .bold, letterSpacing: .5),
-  );
-
-  static ButtonStyle _buildOpenButtonStyle(double alpha) => ElevatedButton.styleFrom(
-    backgroundColor: Colors.white.withValues(alpha: alpha),
-    foregroundColor: Colors.black.withValues(alpha: alpha),
+  static final ButtonStyle _openButtonStyle = ElevatedButton.styleFrom(
+    backgroundColor: Colors.white,
+    foregroundColor: Colors.black,
     elevation: 0,
-    shape: _openButtonShape,
-    padding: _openButtonPadding,
+    shape: const RoundedRectangleBorder(borderRadius: .all(.circular(24))),
+    padding: const .symmetric(horizontal: 40, vertical: 4),
   );
-
-  static final ButtonStyle _openButtonStyle = _buildOpenButtonStyle(1.0);
 
   @override
   Widget build(BuildContext context) {
     final displayGuest = recipientName.isNotEmpty ? recipientName : 'Tamu Undangan';
 
-    final Widget staticButton = FadeTransition(
-      opacity: buttonFadeAnimation,
-      child: ElevatedButton(
-        onPressed: onOpenInvitation,
-        style: _openButtonStyle,
-        child: _openButtonLabel,
+    final Widget headerBlock = RepaintBoundary(
+      child: Column(
+        mainAxisSize: .min,
+        children: [
+          Text('Pernikahan Kami', style: titleScriptStyle),
+          Text('Fauzi & Fitri', style: coupleGothicStyle),
+          const Text(
+            'Ojay & Mae',
+            textAlign: .center,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: .w300,
+              color: Colors.white,
+              height: .6,
+              letterSpacing: 5,
+              fontStyle: .italic,
+            ),
+          ),
+        ],
       ),
     );
 
-    final Widget fadingOverlay = AnimatedBuilder(
-      animation: morphAnimation,
-      child: staticButton,
-      builder: (context, buttonChild) {
-        final rawT = morphAnimation.value.clamp(0.0, 1.0);
-        final fadeT = rawT <= 0.0
-            ? 0.0
-            : Curves.easeOutCubic.transform((rawT / 0.26).clamp(0.0, 1.0));
-        final textAlpha = (1.0 - fadeT).clamp(0.0, 1.0);
-        if (textAlpha <= 0.01) return const SizedBox.shrink();
-
-        final textColor = Colors.white.withValues(alpha: textAlpha);
-        final scale = ui.lerpDouble(1.0, 0.94, fadeT)!;
-        final Widget effectiveButton = rawT <= 0.0
-            ? buttonChild!
-            : ElevatedButton(
-                onPressed: onOpenInvitation,
-                style: _buildOpenButtonStyle(
-                  (textAlpha * buttonFadeAnimation.value).clamp(0.0, 1.0),
-                ),
-                child: _openButtonLabel,
-              );
-
-        final Widget content = SafeArea(
-          child: Padding(
-            padding: const .symmetric(horizontal: 24, vertical: 36),
-            child: Stack(
-              fit: .expand,
-              children: [
-                Align(
-                  alignment: .topCenter,
-                  child: Padding(
-                    padding: const .only(top: 24),
-                    child: Column(
-                      mainAxisSize: .min,
-                      children: [
-                        Text(
-                          'Pernikahan Kami',
-                          style: textAlpha >= 0.999
-                              ? titleScriptStyle
-                              : titleScriptStyle.copyWith(color: textColor),
-                        ),
-                        Text(
-                          'Fauzi & Fitri',
-                          style: textAlpha >= 0.999
-                              ? coupleGothicStyle
-                              : coupleGothicStyle.copyWith(color: textColor),
-                        ),
-                        Text(
-                          'Ojay & Mae',
-                          textAlign: .center,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: .w300,
-                            color: textColor,
-                            height: .6,
-                            letterSpacing: 5,
-                            fontStyle: .italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Align(
-                  alignment: .bottomCenter,
-                  child: Padding(
-                    padding: const .only(bottom: 16),
-                    child: Column(
-                      mainAxisSize: .min,
-                      children: [
-                        Text(
-                          'Kepada Yth',
-                          style: textAlpha >= 0.999
-                              ? guestIntroStyle
-                              : guestIntroStyle.copyWith(color: textColor),
-                        ),
-                        Text(
-                          displayGuest,
-                          textAlign: .center,
-                          style: textAlpha >= 0.999
-                              ? guestNameStyle
-                              : guestNameStyle.copyWith(color: textColor),
-                        ),
-                        const SizedBox(height: 18),
-                        effectiveButton,
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+    final Widget footerBlock = RepaintBoundary(
+      child: Column(
+        mainAxisSize: .min,
+        children: [
+          Text('Kepada Yth', style: guestIntroStyle),
+          Text(displayGuest, textAlign: .center, style: guestNameStyle),
+          const SizedBox(height: 18),
+          ElevatedButton(
+            onPressed: onOpenInvitation,
+            style: _openButtonStyle,
+            child: const Text(
+              'Buka Undangan',
+              style: TextStyle(fontSize: 18, fontWeight: .bold, letterSpacing: .5),
             ),
           ),
-        );
+        ],
+      ),
+    );
 
-        if (scale >= 0.999) return content;
-        return Transform.scale(scale: scale, child: content);
-      },
+    final Widget content = SafeArea(
+      child: Padding(
+        padding: const .symmetric(horizontal: 24, vertical: 36),
+        child: Stack(
+          fit: .expand,
+          children: [
+            Align(
+              alignment: .topCenter,
+              child: Padding(
+                padding: const .only(top: 24),
+                child: FadeTransition(opacity: textFadeAnimation, child: headerBlock),
+              ),
+            ),
+            Align(
+              alignment: .bottomCenter,
+              child: Padding(
+                padding: const .only(bottom: 16),
+                child: FadeTransition(opacity: textFadeAnimation, child: footerBlock),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
 
     return ValueListenableBuilder<bool>(
       valueListenable: isMorphActive,
-      child: fadingOverlay,
+      child: content,
       builder: (context, morphActive, child) => IgnorePointer(
         ignoring: morphActive,
         child: morphActive ? child! : Listener(behavior: .opaque, child: child),
@@ -1063,122 +958,78 @@ class const _CoverTextFadeLayer({
   }
 }
 
-class const _SlidingPillReveal({
-  required final Animation<double> morphAnimation,
-  required final Widget child,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: morphAnimation,
-      child: child,
-      builder: (context, staticPill) {
-        final rawT = morphAnimation.value.clamp(0.0, 1.0);
-        final reveal = Curves.easeOutCubic.transform(((rawT - 0.72) / 0.28).clamp(0.0, 1.0));
-        if (reveal >= 0.999) return staticPill!;
-        return ClipRect(
-          child: Transform.translate(offset: Offset((1.0 - reveal) * 56.0, 0.0), child: staticPill),
-        );
-      },
-    );
-  }
-}
-
-class const _CoverArtworkLayer({required final String coverBgAsset}) extends StatelessWidget {
+class const _CoverFallbackLayer({required final String coverBgAsset}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Image.asset(
       coverBgAsset,
       fit: .cover,
-      filterQuality: .low,
+      filterQuality: .medium,
       gaplessPlayback: true,
       errorBuilder: (context, error, stackTrace) => const ColoredBox(color: Color(0xFF000000)),
     );
   }
 }
 
-class const _MorphEndDiscOverlay({
-  required final Animation<double> morphAnimation,
-  required final Matrix4 morphEndMatrix,
-  required final Listenable progressRingRepaint,
-  required final Size viewportSize,
-  required final double dockRight,
-  required final double dockBottom,
-  required final double discSize,
-  required final String coverBgAsset,
-  required final String coverLogoAsset,
-  required final _DvdSpriteCache spriteCache,
-  required final InvitationMusicController musicController,
-  required final Animation<double> spinAnimation,
-  required final Matrix4 spinMatrix,
-  required final Matrix4 sheenMatrix,
-  required final Matrix4 secondarySheenMatrix,
-  required final VoidCallback onTapDisc,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final discWidget = _DvdDiscFrame(
-      coverBgAsset: coverBgAsset,
-      coverLogoAsset: coverLogoAsset,
-      spriteCache: spriteCache,
-      musicController: musicController,
-      spinAnimation: spinAnimation,
-      spinMatrix: spinMatrix,
-      sheenMatrix: sheenMatrix,
-      secondarySheenMatrix: secondarySheenMatrix,
-      onTapDisc: onTapDisc,
-      includeAccessibility: false,
-      morphAnimation: morphAnimation,
-      progressRingRepaint: progressRingRepaint,
-    );
-
-    final width = viewportSize.width;
-    final height = viewportSize.height;
-    final minSide = math.min(width, height);
-    final targetCx = width - dockRight - discSize * 0.5;
-    final targetCy = height - dockBottom - discSize * 0.5;
-
-    return AnimatedBuilder(
-      animation: morphAnimation,
-      child: discWidget,
-      builder: (context, child) {
-        final rawT = morphAnimation.value.clamp(0.0, 1.0);
-        final easeT = Curves.easeInOutCubic.transform(rawT);
-        final curSide = ui.lerpDouble(minSide, discSize, easeT)!;
-        final posYFactor = easeT * (0.86 + 0.14 * easeT);
-        final cx = ui.lerpDouble(width * 0.5, targetCx, easeT)!;
-        final cy = ui.lerpDouble(height * 0.5, targetCy, posYFactor)!;
-        final scale = curSide / discSize;
-
-        morphEndMatrix
-          ..setIdentity()
-          ..translateByDouble(cx - targetCx, cy - targetCy, 0.0, 1.0)
-          ..scaleByDouble(scale, scale, 1.0, 1.0);
-
-        return Transform(alignment: .center, transform: morphEndMatrix, child: child);
-      },
-    );
-  }
-}
-
+/// Dock pemutar DVD persisten yang aktif dari t >= 0.60 dan tetap bertahan tanpa teardown
+/// setelah morph selesai di t = 1.00.
 class const _DockedDvdMusicDock({
   required final double discSize,
   required final double dockWidth,
   required final double pillRightOverlap,
+  required final Size viewportSize,
+  required final double dockRight,
+  required final double dockBottom,
   required final String coverBgAsset,
   required final String coverLogoAsset,
   required final _DvdSpriteCache spriteCache,
   required final InvitationMusicController musicController,
+  required final Animation<double> morphAnimation,
+  required final Matrix4 morphMatrix,
   required final Animation<double> spinAnimation,
   required final Matrix4 spinMatrix,
   required final Matrix4 sheenMatrix,
   required final Matrix4 secondarySheenMatrix,
   required final Animation<double> replayScaleAnimation,
+  required final Listenable progressRingRepaint,
+  required final ValueListenable<bool> showSlidingPill,
+  required final Animation<Offset> pillSlideAnimation,
   required final VoidCallback onTogglePlayPause,
   required final VoidCallback onReplay,
 }) extends StatelessWidget {
+  static const _PillShadowClipper _pillClipper = _PillShadowClipper();
   @override
   Widget build(BuildContext context) {
+    final Widget discNode = RepaintBoundary(
+      child: ScaleTransition(
+        scale: replayScaleAnimation,
+        child: _DvdDiscFrame(
+          coverBgAsset: coverBgAsset,
+          coverLogoAsset: coverLogoAsset,
+          spriteCache: spriteCache,
+          musicController: musicController,
+          spinAnimation: spinAnimation,
+          spinMatrix: spinMatrix,
+          sheenMatrix: sheenMatrix,
+          secondarySheenMatrix: secondarySheenMatrix,
+          morphAnimation: morphAnimation,
+          progressRingRepaint: progressRingRepaint,
+          onTapDisc: onTogglePlayPause,
+        ),
+      ),
+    );
+
+    final Widget staticPill = RepaintBoundary(
+      child: _SlidingControlPillBody(
+        shadowNineImage: spriteCache.shadowNineImage,
+        musicController: musicController,
+        onTogglePlayPause: onTogglePlayPause,
+        onReplay: onReplay,
+      ),
+    );
+
+    final Widget slidingPill = SlideTransition(position: pillSlideAnimation, child: staticPill);
+
     return SizedBox(
       width: dockWidth,
       height: discSize,
@@ -1190,10 +1041,13 @@ class const _DockedDvdMusicDock({
             right: pillRightOverlap,
             top: (discSize - 44.0) * 0.5,
             height: 44.0,
-            child: _SlidingControlPillBody(
-              musicController: musicController,
-              onTogglePlayPause: onTogglePlayPause,
-              onReplay: onReplay,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: showSlidingPill,
+              child: slidingPill,
+              builder: (context, showPill, child) {
+                if (!showPill) return const SizedBox.shrink();
+                return ClipRect(clipper: _pillClipper, child: child);
+              },
             ),
           ),
           Positioned(
@@ -1201,24 +1055,61 @@ class const _DockedDvdMusicDock({
             top: 0,
             width: discSize,
             height: discSize,
-            child: ScaleTransition(
-              scale: replayScaleAnimation,
-              child: _DvdDiscFrame(
-                coverBgAsset: coverBgAsset,
-                coverLogoAsset: coverLogoAsset,
-                spriteCache: spriteCache,
-                musicController: musicController,
-                spinAnimation: spinAnimation,
-                spinMatrix: spinMatrix,
-                sheenMatrix: sheenMatrix,
-                secondarySheenMatrix: secondarySheenMatrix,
-                onTapDisc: onTogglePlayPause,
-                includeAccessibility: true,
-              ),
+            child: _MorphLandingTransform(
+              morphAnimation: morphAnimation,
+              morphMatrix: morphMatrix,
+              viewportSize: viewportSize,
+              dockRight: dockRight,
+              dockBottom: dockBottom,
+              discSize: discSize,
+              child: discNode,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Menggerakkan disc secara murni di GPU (translate + uniform scale) selama fase akhir 0.60..1.00.
+class const _MorphLandingTransform({
+  required final Animation<double> morphAnimation,
+  required final Matrix4 morphMatrix,
+  required final Size viewportSize,
+  required final double dockRight,
+  required final double dockBottom,
+  required final double discSize,
+  required final Widget child,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final width = viewportSize.width;
+    final height = viewportSize.height;
+    final minSide = math.min(width, height);
+    final targetCx = width - dockRight - discSize * 0.5;
+    final targetCy = height - dockBottom - discSize * 0.5;
+
+    return AnimatedBuilder(
+      animation: morphAnimation,
+      child: child,
+      builder: (context, innerChild) {
+        final rawT = morphAnimation.value.clamp(0.0, 1.0);
+        if (rawT >= 0.9999) {
+          morphMatrix.setIdentity();
+        } else {
+          final easeT = Curves.easeInOutCubic.transform(rawT);
+          final curSide = ui.lerpDouble(minSide, discSize, easeT)!;
+          final posYFactor = easeT * (0.86 + 0.14 * easeT);
+          final cx = ui.lerpDouble(width * 0.5, targetCx, easeT)!;
+          final cy = ui.lerpDouble(height * 0.5, targetCy, posYFactor)!;
+          final scale = curSide / discSize;
+          morphMatrix
+            ..setIdentity()
+            ..translateByDouble(cx - targetCx, cy - targetCy, 0.0, 1.0)
+            ..scaleByDouble(scale, scale, 1.0, 1.0);
+        }
+        return Transform(alignment: .center, transform: morphMatrix, child: innerChild);
+      },
     );
   }
 }
@@ -1232,32 +1123,28 @@ class const _DvdDiscFrame({
   required final Matrix4 spinMatrix,
   required final Matrix4 sheenMatrix,
   required final Matrix4 secondarySheenMatrix,
+  required final Animation<double> morphAnimation,
+  required final Listenable progressRingRepaint,
   required final VoidCallback onTapDisc,
-  required final bool includeAccessibility,
-  final Animation<double>? morphAnimation,
-  final Listenable? progressRingRepaint,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final bgSprite = spriteCache.discBgSprite;
-    final logoSprite = spriteCache.discLogoSprite;
+    final discArtSprite = spriteCache.discArtSprite;
+    final shadowCircle = spriteCache.shadowCircleImage;
     final primarySheen = spriteCache.primarySheenImage;
     final secondarySheen = spriteCache.secondarySheenImage;
     final groovesActive = spriteCache.groovesActiveImage;
     final groovesPaused = spriteCache.groovesPausedImage;
 
-    final staticDiscVisual = Stack(
+    final Widget spinningVisual = Stack(
       fit: .expand,
       children: [
         _SpinningDiscArt(
           spinAnimation: spinAnimation,
           spinMatrix: spinMatrix,
-          logoSize: 38.0,
+          discArtSprite: discArtSprite,
+          coverBgAsset: coverBgAsset,
           coverLogoAsset: coverLogoAsset,
-          logoSprite: logoSprite,
-          bgChild: bgSprite != null
-              ? RawImage(image: bgSprite, fit: .cover, filterQuality: .low)
-              : _CoverArtworkLayer(coverBgAsset: coverBgAsset),
         ),
         IgnorePointer(
           child: _DvdSpecularSheen(
@@ -1271,28 +1158,46 @@ class const _DvdDiscFrame({
       ],
     );
 
-    final staticProgressRing = IgnorePointer(
+    final Widget progressRing = IgnorePointer(
       child: CustomPaint(
         painter: _DvdProgressRingPainter(
-          repaint: progressRingRepaint ?? musicController.progressListenable,
+          repaint: progressRingRepaint,
           progressListenable: musicController.progressListenable,
           morphAnimation: morphAnimation,
         ),
       ),
     );
 
-    return _ShadowedDiscFrame(
-      child: RepaintBoundary(
-        child: ClipOval(
-          clipBehavior: .antiAlias,
-          child: ColoredBox(
-            color: Colors.black,
-            child: ValueListenableBuilder<MusicPlaybackState>(
-              valueListenable: musicController.playbackStateListenable,
-              child: staticDiscVisual,
-              builder: (context, playbackState, discVisual) {
-                final groovesImg = playbackState == .playing ? groovesActive : groovesPaused;
-                final Widget interactiveDisc = MouseRegion(
+    return Stack(
+      clipBehavior: .none,
+      fit: .expand,
+      children: [
+        if (shadowCircle != null)
+          Positioned(
+            left: -22,
+            top: -18,
+            right: -22,
+            bottom: -26,
+            child: IgnorePointer(
+              child: RawImage(image: shadowCircle, fit: .fill, filterQuality: .low),
+            ),
+          ),
+        ValueListenableBuilder<MusicPlaybackState>(
+          valueListenable: musicController.playbackStateListenable,
+          child: spinningVisual,
+          builder: (context, playbackState, discVisual) {
+            final groovesImg = playbackState == .playing ? groovesActive : groovesPaused;
+            final String actionLabel = switch (playbackState) {
+              .playing => 'Jeda musik',
+              .paused => 'Putar musik',
+              .completed => 'Putar ulang musik',
+            };
+            return Semantics(
+              button: true,
+              label: actionLabel,
+              child: Tooltip(
+                message: actionLabel,
+                child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                     onTap: onTapDisc,
@@ -1305,93 +1210,70 @@ class const _DvdDiscFrame({
                           child: groovesImg != null
                               ? RawImage(image: groovesImg, fit: .fill, filterQuality: .low)
                               : CustomPaint(
-                                  painter: _DvdGroovesPainter(
-                                    intensity: 1.0,
-                                    isActive: playbackState == .playing,
-                                  ),
+                                  painter: _DvdGroovesPainter(isActive: playbackState == .playing),
                                 ),
                         ),
-                        staticProgressRing,
+                        progressRing,
                       ],
                     ),
                   ),
-                );
-
-                if (!includeAccessibility) return interactiveDisc;
-
-                final String actionLabel = switch (playbackState) {
-                  .playing => 'Jeda musik',
-                  .paused => 'Putar musik',
-                  .completed => 'Putar ulang musik',
-                };
-                return Semantics(
-                  button: true,
-                  label: actionLabel,
-                  child: Tooltip(message: actionLabel, child: interactiveDisc),
-                );
-              },
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         ),
-      ),
+      ],
     );
-  }
-}
-
-class const _ShadowedDiscFrame({required final Widget child}) extends StatelessWidget {
-  static final BoxDecoration _discShadowDecoration = BoxDecoration(
-    shape: .circle,
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: 0.72),
-        blurRadius: 14,
-        offset: const Offset(0, 4),
-      ),
-    ],
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(decoration: _discShadowDecoration, child: child);
   }
 }
 
 class const _SpinningDiscArt({
   required final Animation<double> spinAnimation,
   required final Matrix4 spinMatrix,
-  required final double logoSize,
+  required final ui.Image? discArtSprite,
+  required final String coverBgAsset,
   required final String coverLogoAsset,
-  required final ui.Image? logoSprite,
-  required final Widget? bgChild,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final Widget centeredLogo = Center(
-      child: SizedBox(
-        width: logoSize,
-        height: logoSize,
-        child: logoSprite != null
-            ? RawImage(image: logoSprite, fit: .contain, filterQuality: .low)
-            : Image.asset(
-                coverLogoAsset,
-                fit: .contain,
-                filterQuality: .low,
-                gaplessPlayback: true,
-                errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+    final Widget art = discArtSprite != null
+        ? Stack(
+            fit: .expand,
+            children: [RawImage(image: discArtSprite, fit: .fill, filterQuality: .low)],
+          )
+        : ClipOval(
+            clipBehavior: .antiAlias,
+            child: ColoredBox(
+              color: Colors.black,
+              child: Stack(
+                fit: .expand,
+                children: [
+                  _CoverFallbackLayer(coverBgAsset: coverBgAsset),
+                  Center(
+                    child: SizedBox(
+                      width: 38.0,
+                      height: 38.0,
+                      child: Image.asset(
+                        coverLogoAsset,
+                        fit: .contain,
+                        filterQuality: .low,
+                        gaplessPlayback: true,
+                        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-      ),
-    );
-
-    final art = Stack(fit: .expand, children: [?bgChild, centeredLogo]);
+            ),
+          );
 
     return AnimatedBuilder(
       animation: spinAnimation,
       child: art,
       builder: (context, child) {
-        final angle = spinAnimation.value * 2.0 * math.pi;
         spinMatrix
           ..setIdentity()
-          ..rotateZ(angle);
+          ..rotateZ(spinAnimation.value * 2.0 * math.pi);
         return Transform(alignment: .center, transform: spinMatrix, child: child);
       },
     );
@@ -1405,50 +1287,7 @@ class const _DvdSpecularSheen({
   required final ui.Image? primarySheenImage,
   required final ui.Image? secondarySheenImage,
 }) extends StatelessWidget {
-  static const List<(double, Color)> _primaryCones = [
-    (0.00, Colors.transparent),
-    (0.04, Color.fromRGBO(96, 226, 255, 0.18)),
-    (0.09, Color.fromRGBO(110, 236, 255, 0.44)),
-    (0.14, Color.fromRGBO(216, 248, 255, 0.60)),
-    (0.17, Color.fromRGBO(255, 255, 255, 0.74)),
-    (0.21, Color.fromRGBO(236, 174, 255, 0.48)),
-    (0.26, Color.fromRGBO(255, 218, 150, 0.28)),
-    (0.33, Colors.transparent),
-    (0.48, Colors.transparent),
-    (0.54, Color.fromRGBO(96, 226, 255, 0.16)),
-    (0.59, Color.fromRGBO(110, 236, 255, 0.38)),
-    (0.64, Color.fromRGBO(216, 248, 255, 0.54)),
-    (0.67, Color.fromRGBO(255, 255, 255, 0.66)),
-    (0.71, Color.fromRGBO(236, 174, 255, 0.42)),
-    (0.76, Color.fromRGBO(255, 218, 150, 0.24)),
-    (0.83, Colors.transparent),
-    (1.00, Colors.transparent),
-  ];
-
-  static const List<(double, Color)> _secondaryCones = [
-    (0.00, Colors.transparent),
-    (0.10, Colors.transparent),
-    (0.16, Color.fromRGBO(255, 168, 222, 0.26)),
-    (0.21, Color.fromRGBO(124, 244, 255, 0.42)),
-    (0.25, Color.fromRGBO(244, 252, 255, 0.40)),
-    (0.29, Color.fromRGBO(255, 228, 152, 0.30)),
-    (0.36, Colors.transparent),
-    (0.60, Colors.transparent),
-    (0.66, Color.fromRGBO(255, 168, 222, 0.24)),
-    (0.71, Color.fromRGBO(124, 244, 255, 0.38)),
-    (0.75, Color.fromRGBO(244, 252, 255, 0.36)),
-    (0.79, Color.fromRGBO(255, 228, 152, 0.26)),
-    (0.86, Colors.transparent),
-    (1.00, Colors.transparent),
-  ];
-
-  static final Widget _fullPrimaryDisc = _buildFallbackDiffractionDisc(_primaryCones);
-  static final Widget _fullSecondaryDisc = _buildFallbackDiffractionDisc(
-    _secondaryCones,
-    rotation: const GradientRotation(math.pi * 0.48),
-  );
-
-  static Widget _buildFallbackDiffractionDisc(
+  static Widget _buildFallbackCones(
     List<(double, Color)> spec, {
     GradientTransform? rotation,
   }) {
@@ -1461,6 +1300,12 @@ class const _DvdSpecularSheen({
       ),
     );
   }
+
+  static final Widget _fallbackPrimary = _buildFallbackCones(_DvdSpriteCache._primaryCones);
+  static final Widget _fallbackSecondary = _buildFallbackCones(
+    _DvdSpriteCache._secondaryCones,
+    rotation: const GradientRotation(math.pi * 0.48),
+  );
 
   Widget _buildRotatedLayer({
     required Widget discChild,
@@ -1486,13 +1331,13 @@ class const _DvdSpecularSheen({
             decoration: const BoxDecoration(),
             child: RawImage(image: primarySheenImage, fit: .fill, filterQuality: .low),
           )
-        : _fullPrimaryDisc;
+        : _fallbackPrimary;
     final Widget secondaryDisc = secondarySheenImage != null
         ? DecoratedBox(
             decoration: const BoxDecoration(),
             child: RawImage(image: secondarySheenImage, fit: .fill, filterQuality: .low),
           )
-        : _fullSecondaryDisc;
+        : _fallbackSecondary;
 
     return Stack(
       fit: .expand,
@@ -1513,6 +1358,7 @@ class const _DvdSpecularSheen({
 }
 
 class const _SlidingControlPillBody({
+  required final ui.Image? shadowNineImage,
   required final InvitationMusicController musicController,
   required final VoidCallback onTogglePlayPause,
   required final VoidCallback onReplay,
@@ -1521,18 +1367,11 @@ class const _SlidingControlPillBody({
     color: const Color(0xEB111111),
     borderRadius: const .all(.circular(22)),
     border: Border.fromBorderSide(BorderSide(color: Colors.white.withValues(alpha: 0.24))),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: 0.65),
-        blurRadius: 12,
-        offset: const Offset(0, 4),
-      ),
-    ],
   );
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    final Widget pillSurface = DecoratedBox(
       decoration: _pillDecoration,
       child: Padding(
         padding: const .only(left: 8, right: 35),
@@ -1571,7 +1410,37 @@ class const _SlidingControlPillBody({
         ),
       ),
     );
+
+    if (shadowNineImage == null) return pillSurface;
+
+    return CustomPaint(
+      painter: _NinePatchShadowPainter(shadowNineImage: shadowNineImage!),
+      child: pillSurface,
+    );
   }
+}
+
+final class const _PillShadowClipper() extends CustomClipper<Rect> {
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(-20.0, -20.0, size.width, size.height + 24.0);
+
+  @override
+  bool shouldReclip(_PillShadowClipper oldClipper) => false;
+}
+
+final class _NinePatchShadowPainter({required final ui.Image shadowNineImage}) extends CustomPainter {
+  static const Rect _centerSlice = Rect.fromLTWH(30, 30, 4, 4);
+  static final Paint _paint = Paint()..filterQuality = .low;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shadowRect = (Offset.zero & size).inflate(14.0).shift(const Offset(0.0, 4.0));
+    canvas.drawImageNine(shadowNineImage, _centerSlice, shadowRect, _paint);
+  }
+
+  @override
+  bool shouldRepaint(_NinePatchShadowPainter oldDelegate) =>
+      oldDelegate.shadowNineImage != shadowNineImage;
 }
 
 class const _MiniPlayerButton({
@@ -1614,8 +1483,7 @@ class const _MiniPlayerButton({
   }
 }
 
-final class _DvdGroovesPainter({required final double intensity, final bool isActive = true})
-    extends CustomPainter {
+final class _DvdGroovesPainter({final bool isActive = true}) extends CustomPainter {
   static const List<double> _grooveFractions = [0.92, 0.85, 0.78, 0.71, 0.63, 0.54, 0.45, 0.36];
 
   final Paint _groovePaint = Paint()
@@ -1626,12 +1494,6 @@ final class _DvdGroovesPainter({required final double intensity, final bool isAc
   final Paint _rimPaint = Paint()
     ..style = .stroke
     ..strokeWidth = 1.15
-    ..isAntiAlias = true;
-
-  final Paint _specularArcPaint = Paint()
-    ..style = .stroke
-    ..strokeWidth = 1.5
-    ..strokeCap = .round
     ..isAntiAlias = true;
 
   final Paint _hubRingPaint = Paint()
@@ -1645,12 +1507,10 @@ final class _DvdGroovesPainter({required final double intensity, final bool isAc
   static void paintGrooves({
     required Canvas canvas,
     required Size size,
-    required double intensity,
     required bool isActive,
     required double strokeScale,
     required Paint groovePaint,
     required Paint rimPaint,
-    required Paint specularArcPaint,
     required Paint hubRingPaint,
     required Paint spindleHolePaint,
   }) {
@@ -1660,37 +1520,35 @@ final class _DvdGroovesPainter({required final double intensity, final bool isAc
 
     groovePaint
       ..strokeWidth = 0.65 * strokeScale
-      ..color = Colors.white.withValues(alpha: 0.15 * intensity);
+      ..color = Colors.white.withValues(alpha: 0.15);
     for (final fraction in _grooveFractions) {
       canvas.drawCircle(center, radius * fraction, groovePaint);
     }
 
-    // Cincin pembatas gelap + hub polikarbonat transparan + lubang spindle.
-    groovePaint.color = Colors.black.withValues(alpha: 0.45 * intensity);
+    groovePaint.color = Colors.black.withValues(alpha: 0.45);
     canvas.drawCircle(center, math.max(6.2 * strokeScale, radius * 0.31), groovePaint);
 
-    hubRingPaint.color = Colors.white.withValues(alpha: 0.16 * intensity);
+    hubRingPaint.color = Colors.white.withValues(alpha: 0.16);
     canvas.drawCircle(center, math.max(5.5 * strokeScale, radius * 0.27), hubRingPaint);
 
-    groovePaint.color = Colors.white.withValues(alpha: 0.42 * intensity);
+    groovePaint.color = Colors.white.withValues(alpha: 0.42);
     canvas.drawCircle(center, math.max(5.5 * strokeScale, radius * 0.27), groovePaint);
 
-    hubRingPaint.color = Colors.white.withValues(alpha: 0.30 * intensity);
+    hubRingPaint.color = Colors.white.withValues(alpha: 0.30);
     canvas.drawCircle(center, math.max(4.0 * strokeScale, radius * 0.185), hubRingPaint);
 
-    groovePaint.color = Colors.white.withValues(alpha: 0.62 * intensity);
+    groovePaint.color = Colors.white.withValues(alpha: 0.62);
     canvas.drawCircle(center, math.max(4.0 * strokeScale, radius * 0.185), groovePaint);
 
-    spindleHolePaint.color = Colors.black.withValues(alpha: 0.94 * intensity);
+    spindleHolePaint.color = Colors.black.withValues(alpha: 0.94);
     canvas.drawCircle(center, math.max(2.2 * strokeScale, radius * 0.095), spindleHolePaint);
 
-    groovePaint.color = Colors.white.withValues(alpha: 0.68 * intensity);
+    groovePaint.color = Colors.white.withValues(alpha: 0.68);
     canvas.drawCircle(center, math.max(2.2 * strokeScale, radius * 0.095), groovePaint);
 
-    final rimAlpha = (isActive ? 0.44 : 0.22) * intensity;
     rimPaint
       ..strokeWidth = 1.15 * strokeScale
-      ..color = Colors.white.withValues(alpha: rimAlpha);
+      ..color = Colors.white.withValues(alpha: isActive ? 0.44 : 0.22);
     canvas.drawCircle(center, radius - 0.8 * strokeScale, rimPaint);
   }
 
@@ -1699,26 +1557,23 @@ final class _DvdGroovesPainter({required final double intensity, final bool isAc
     paintGrooves(
       canvas: canvas,
       size: size,
-      intensity: intensity,
       isActive: isActive,
       strokeScale: 1.0,
       groovePaint: _groovePaint,
       rimPaint: _rimPaint,
-      specularArcPaint: _specularArcPaint,
       hubRingPaint: _hubRingPaint,
       spindleHolePaint: _spindleHolePaint,
     );
   }
 
   @override
-  bool shouldRepaint(_DvdGroovesPainter oldDelegate) =>
-      oldDelegate.intensity != intensity || oldDelegate.isActive != isActive;
+  bool shouldRepaint(_DvdGroovesPainter oldDelegate) => oldDelegate.isActive != isActive;
 }
 
 final class _DvdProgressRingPainter({
   required Listenable repaint,
   required final ValueListenable<double> progressListenable,
-  final Animation<double>? morphAnimation,
+  required final Animation<double> morphAnimation,
 }) extends CustomPainter {
   this : super(repaint: repaint);
 
@@ -1735,10 +1590,9 @@ final class _DvdProgressRingPainter({
 
   @override
   void paint(Canvas canvas, Size size) {
-    final morph = morphAnimation;
-    final alpha = morph == null
-        ? 1.0
-        : Curves.easeOut.transform(((morph.value.clamp(0.0, 1.0) - 0.84) / 0.16).clamp(0.0, 1.0));
+    final alpha = Curves.easeOut.transform(
+      ((morphAnimation.value.clamp(0.0, 1.0) - 0.84) / 0.16).clamp(0.0, 1.0),
+    );
     if (alpha <= 0.01) return;
 
     final radius = math.min(size.width, size.height) * 0.5 - 1.2;

@@ -10,6 +10,8 @@ abstract final class WebInterop._() {
 
   static void stopActiveAudio() {}
 
+  static void warmUpActiveAudio() {}
+
   static String? getStorageItem(String key) => null;
 
   static void setStorageItem(String key, String value) {}

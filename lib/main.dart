@@ -26,7 +26,11 @@ Future<void> main() async {
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     WebInterop.completeSplash();
-    unawaited(preCacheAssetImages(InvitationAssets.deferred));
+    unawaited(
+      preCacheAssetImages(InvitationAssets.deferred).then<void>((_) {
+        WebInterop.warmUpActiveAudio();
+      }),
+    );
   });
 }
 
