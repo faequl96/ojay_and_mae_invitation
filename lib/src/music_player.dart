@@ -1307,10 +1307,7 @@ class const _DvdSpecularSheen({
   required final ui.Image? primarySheenImage,
   required final ui.Image? secondarySheenImage,
 }) extends StatelessWidget {
-  static Widget _buildFallbackCones(
-    List<(double, Color)> spec, {
-    GradientTransform? rotation,
-  }) {
+  static Widget _buildFallbackCones(List<(double, Color)> spec, {GradientTransform? rotation}) {
     final stops = <double>[for (final entry in spec) entry.$1];
     final colors = <Color>[for (final entry in spec) entry.$2];
     return DecoratedBox(
@@ -1394,7 +1391,7 @@ class const _SlidingControlPillBody({
     final Widget pillSurface = DecoratedBox(
       decoration: _pillDecoration,
       child: Padding(
-        padding: const .only(left: 8, right: 35),
+        padding: const .only(left: 4, right: 28),
         child: ValueListenableBuilder<MusicPlaybackState>(
           valueListenable: musicController.playbackStateListenable,
           builder: (context, playbackState, _) {
@@ -1448,7 +1445,8 @@ final class const _PillShadowClipper() extends CustomClipper<Rect> {
   bool shouldReclip(_PillShadowClipper oldClipper) => false;
 }
 
-final class _NinePatchShadowPainter({required final ui.Image shadowNineImage}) extends CustomPainter {
+final class _NinePatchShadowPainter({required final ui.Image shadowNineImage})
+    extends CustomPainter {
   static const Rect _centerSlice = Rect.fromLTWH(30, 30, 4, 4);
   static final Paint _paint = Paint()..filterQuality = .low;
 
@@ -1473,32 +1471,36 @@ class const _MiniPlayerButton({
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: _radius,
-          child: SizedBox(
-            width: 36,
-            height: 36,
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                switchInCurve: Curves.easeOut,
-                switchOutCurve: Curves.easeIn,
-                child: Icon(
-                  icon,
-                  key: ValueKey<int>(icon.codePoint),
-                  size: iconSize,
-                  color: Colors.white,
+    return Row(
+      children: [
+        Tooltip(
+          message: tooltip,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: _radius,
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    child: Icon(
+                      icon,
+                      key: ValueKey<int>(icon.codePoint),
+                      size: iconSize,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }
