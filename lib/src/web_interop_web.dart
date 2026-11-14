@@ -116,11 +116,12 @@ final class WebAudioEngine({
       if (!_disposed) _setPlaying(true);
     }).toJS;
     _onPauseJs = ((JSAny? _) {
-      if (!_disposed) _setPlaying(false);
+      if (_disposed || audio.ended) return;
+      _setPlaying(false);
     }).toJS;
     _onEndedJs = ((JSAny? _) {
       if (_disposed) return;
-      _setPlaying(false);
+      _isPlaying = false;
       _setProgress(1.0);
       onEnded?.call();
     }).toJS;
@@ -182,7 +183,13 @@ final class WebAudioEngine({
         unawaited(
           promise.toDart.then<void>(
             (_) {
-              if (!_disposed) _setPlaying(!_audio.paused);
+              if (_disposed) return;
+              if (_audio.ended) {
+                _isPlaying = false;
+                onEnded?.call();
+              } else {
+                _setPlaying(!_audio.paused);
+              }
             },
             onError: (Object _) {
               if (!_disposed) _setPlaying(false);

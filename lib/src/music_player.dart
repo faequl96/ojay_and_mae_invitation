@@ -6,27 +6,45 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ojay_and_mae_invitation/src/web_interop.dart';
 
+/// Status pemutaran musik undangan.
+enum MusicPlaybackState() {
+  playing,
+  paused,
+  completed,
+}
+
 /// Pengendali pemutar musik undangan (Play, Pause, Replay, dan progres trek).
 final class InvitationMusicController({String assetPath = defaultMusicAsset, bool loop = false}) {
   this {
     _engine = WebAudioEngine(
       assetPath: assetPath,
       loop: loop,
-      onPlayingChanged: (playing) => _isPlaying.value = playing,
+      onPlayingChanged: (playing) {
+        if (playing) {
+          _playbackState.value = .playing;
+        } else if (_playbackState.value != .completed) {
+          _playbackState.value = .paused;
+        }
+      },
       onProgressChanged: (value) => _progress.value = value,
+      onEnded: () => _playbackState.value = .completed,
     );
   }
 
   static const String defaultMusicAsset = 'assets/musics/music.mp3';
 
-  final ValueNotifier<bool> _isPlaying = ValueNotifier<bool>(false);
+  final ValueNotifier<MusicPlaybackState> _playbackState = ValueNotifier<MusicPlaybackState>(
+    .paused,
+  );
   final ValueNotifier<double> _progress = ValueNotifier<double>(0.0);
   late final WebAudioEngine _engine;
 
-  ValueListenable<bool> get isPlayingListenable => _isPlaying;
+  ValueListenable<MusicPlaybackState> get playbackStateListenable => _playbackState;
   ValueListenable<double> get progressListenable => _progress;
 
-  bool get isPlaying => _isPlaying.value;
+  MusicPlaybackState get playbackState => _playbackState.value;
+  bool get isPlaying => _playbackState.value == .playing;
+  bool get isCompleted => _playbackState.value == .completed;
   double get progress => _progress.value;
 
   void play() => _engine.play();
@@ -34,18 +52,24 @@ final class InvitationMusicController({String assetPath = defaultMusicAsset, boo
   void pause() => _engine.pause();
 
   void togglePlayPause() {
-    if (_isPlaying.value) {
-      pause();
-    } else {
-      play();
+    switch (_playbackState.value) {
+      case .playing:
+        pause();
+      case .paused:
+        play();
+      case .completed:
+        replay();
     }
   }
 
   void replay() => _engine.replay();
 
+  @visibleForTesting
+  void debugCompleteTrack() => _engine.debugCompleteTrack();
+
   void dispose() {
     _engine.dispose();
-    _isPlaying.dispose();
+    _playbackState.dispose();
     _progress.dispose();
   }
 }
@@ -74,13 +98,15 @@ class _CoverMusicPlayerOverlayState()
     extends State<CoverMusicPlayerOverlay>
     with TickerProviderStateMixin {
   static const double _discSize = 62.0;
-  static const double _dockWidth = 148.0;
+  static const double _dockWidth = 110.0;
   static const double _pillRightOverlap = 31.0;
 
   late final AnimationController _spinController;
   late final AnimationController _replayPulseController;
   late final Animation<double> _replayScaleAnimation;
   final Matrix4 _spinMatrix = Matrix4.identity();
+  final Matrix4 _sheenMatrix = Matrix4.identity();
+  final Matrix4 _secondarySheenMatrix = Matrix4.identity();
 
   @override
   void initState() {
@@ -102,7 +128,7 @@ class _CoverMusicPlayerOverlayState()
     ]).animate(_replayPulseController);
 
     widget.morphAnimation.addListener(_syncDiscSpin);
-    widget.musicController.isPlayingListenable.addListener(_syncDiscSpin);
+    widget.musicController.playbackStateListenable.addListener(_syncDiscSpin);
     _syncDiscSpin();
   }
 
@@ -114,8 +140,8 @@ class _CoverMusicPlayerOverlayState()
       widget.morphAnimation.addListener(_syncDiscSpin);
     }
     if (oldWidget.musicController != widget.musicController) {
-      oldWidget.musicController.isPlayingListenable.removeListener(_syncDiscSpin);
-      widget.musicController.isPlayingListenable.addListener(_syncDiscSpin);
+      oldWidget.musicController.playbackStateListenable.removeListener(_syncDiscSpin);
+      widget.musicController.playbackStateListenable.addListener(_syncDiscSpin);
     }
     _syncDiscSpin();
   }
@@ -136,6 +162,10 @@ class _CoverMusicPlayerOverlayState()
 
   void _handleTogglePlayPause() {
     HapticFeedback.selectionClick();
+    if (widget.musicController.isCompleted) {
+      _handleReplay();
+      return;
+    }
     widget.musicController.togglePlayPause();
   }
 
@@ -148,7 +178,7 @@ class _CoverMusicPlayerOverlayState()
   @override
   void dispose() {
     widget.morphAnimation.removeListener(_syncDiscSpin);
-    widget.musicController.isPlayingListenable.removeListener(_syncDiscSpin);
+    widget.musicController.playbackStateListenable.removeListener(_syncDiscSpin);
     _spinController.dispose();
     _replayPulseController.dispose();
     super.dispose();
@@ -175,6 +205,8 @@ class _CoverMusicPlayerOverlayState()
           musicController: widget.musicController,
           spinAnimation: _spinController,
           spinMatrix: _spinMatrix,
+          sheenMatrix: _sheenMatrix,
+          secondarySheenMatrix: _secondarySheenMatrix,
           replayScaleAnimation: _replayScaleAnimation,
           onTogglePlayPause: _handleTogglePlayPause,
           onReplay: _handleReplay,
@@ -271,6 +303,8 @@ class _CoverMusicPlayerOverlayState()
                   progressRingAlpha: progressRingAlpha,
                   spinAnimation: _spinController,
                   spinMatrix: _spinMatrix,
+                  sheenMatrix: _sheenMatrix,
+                  secondarySheenMatrix: _secondarySheenMatrix,
                   musicController: widget.musicController,
                   isInteractive: rawT >= 0.92,
                   onTapDisc: _handleTogglePlayPause,
@@ -401,6 +435,8 @@ class const _MorphingDvdCard({
   required final double progressRingAlpha,
   required final Animation<double> spinAnimation,
   required final Matrix4 spinMatrix,
+  required final Matrix4 sheenMatrix,
+  required final Matrix4 secondarySheenMatrix,
   required final InvitationMusicController musicController,
   required final bool isInteractive,
   required final VoidCallback onTapDisc,
@@ -428,14 +464,21 @@ class const _MorphingDvdCard({
               bgChild: staticBgChild,
             ),
             if (dvdDetailsIntensity > 0.01) ...[
-              IgnorePointer(child: _DvdSpecularSheen(intensity: dvdDetailsIntensity)),
               IgnorePointer(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: musicController.isPlayingListenable,
-                  builder: (context, isPlaying, _) => CustomPaint(
+                child: _DvdSpecularSheen(
+                  intensity: dvdDetailsIntensity,
+                  spinAnimation: spinAnimation,
+                  sheenMatrix: sheenMatrix,
+                  secondarySheenMatrix: secondarySheenMatrix,
+                ),
+              ),
+              IgnorePointer(
+                child: ValueListenableBuilder<MusicPlaybackState>(
+                  valueListenable: musicController.playbackStateListenable,
+                  builder: (context, playbackState, _) => CustomPaint(
                     painter: _DvdGroovesPainter(
                       intensity: dvdDetailsIntensity,
-                      isActive: isPlaying,
+                      isActive: playbackState == .playing,
                     ),
                   ),
                 ),
@@ -489,6 +532,8 @@ class const _DockedDvdMusicDock({
   required final InvitationMusicController musicController,
   required final Animation<double> spinAnimation,
   required final Matrix4 spinMatrix,
+  required final Matrix4 sheenMatrix,
+  required final Matrix4 secondarySheenMatrix,
   required final Animation<double> replayScaleAnimation,
   required final VoidCallback onTogglePlayPause,
   required final VoidCallback onReplay,
@@ -517,7 +562,14 @@ class const _DockedDvdMusicDock({
           coverLogoAsset: coverLogoAsset,
           bgChild: _CoverArtworkLayer(coverBgAsset: coverBgAsset),
         ),
-        const IgnorePointer(child: _DvdSpecularSheen(intensity: 1.0)),
+        IgnorePointer(
+          child: _DvdSpecularSheen(
+            intensity: 1.0,
+            spinAnimation: spinAnimation,
+            sheenMatrix: sheenMatrix,
+            secondarySheenMatrix: secondarySheenMatrix,
+          ),
+        ),
       ],
     );
 
@@ -561,38 +613,45 @@ class const _DockedDvdMusicDock({
                     clipBehavior: .antiAlias,
                     child: ColoredBox(
                       color: Colors.black,
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: musicController.isPlayingListenable,
+                      child: ValueListenableBuilder<MusicPlaybackState>(
+                        valueListenable: musicController.playbackStateListenable,
                         child: staticDiscVisual,
-                        builder: (context, isPlaying, discVisual) => Semantics(
-                          button: true,
-                          label: isPlaying ? 'Jeda musik' : 'Putar musik',
-                          child: Tooltip(
-                            message: isPlaying ? 'Jeda musik' : 'Putar musik',
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: GestureDetector(
-                                onTap: onTogglePlayPause,
-                                behavior: .opaque,
-                                child: Stack(
-                                  fit: .expand,
-                                  children: [
-                                    ?discVisual,
-                                    IgnorePointer(
-                                      child: CustomPaint(
-                                        painter: _DvdGroovesPainter(
-                                          intensity: 1.0,
-                                          isActive: isPlaying,
+                        builder: (context, playbackState, discVisual) {
+                          final String actionLabel = switch (playbackState) {
+                            .playing => 'Jeda musik',
+                            .paused => 'Putar musik',
+                            .completed => 'Putar ulang musik',
+                          };
+                          return Semantics(
+                            button: true,
+                            label: actionLabel,
+                            child: Tooltip(
+                              message: actionLabel,
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  onTap: onTogglePlayPause,
+                                  behavior: .opaque,
+                                  child: Stack(
+                                    fit: .expand,
+                                    children: [
+                                      ?discVisual,
+                                      IgnorePointer(
+                                        child: CustomPaint(
+                                          painter: _DvdGroovesPainter(
+                                            intensity: 1.0,
+                                            isActive: playbackState == .playing,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    staticProgressRing,
-                                  ],
+                                      staticProgressRing,
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -655,28 +714,121 @@ class const _SpinningDiscArt({
   }
 }
 
-class const _DvdSpecularSheen({required final double intensity}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final highlightStrong = Color.fromRGBO(255, 255, 255, 0.16 * intensity);
-    final highlightSoft = Color.fromRGBO(255, 255, 255, 0.08 * intensity);
+class const _DvdSpecularSheen({
+  required final double intensity,
+  required final Animation<double> spinAnimation,
+  required final Matrix4 sheenMatrix,
+  required final Matrix4 secondarySheenMatrix,
+}) extends StatelessWidget {
+  static const List<(double, Color)> _primaryCones = [
+    (0.00, Colors.transparent),
+    (0.04, Color.fromRGBO(96, 226, 255, 0.18)),
+    (0.09, Color.fromRGBO(110, 236, 255, 0.44)),
+    (0.14, Color.fromRGBO(216, 248, 255, 0.60)),
+    (0.17, Color.fromRGBO(255, 255, 255, 0.74)),
+    (0.21, Color.fromRGBO(236, 174, 255, 0.48)),
+    (0.26, Color.fromRGBO(255, 218, 150, 0.28)),
+    (0.33, Colors.transparent),
+    (0.48, Colors.transparent),
+    (0.54, Color.fromRGBO(96, 226, 255, 0.16)),
+    (0.59, Color.fromRGBO(110, 236, 255, 0.38)),
+    (0.64, Color.fromRGBO(216, 248, 255, 0.54)),
+    (0.67, Color.fromRGBO(255, 255, 255, 0.66)),
+    (0.71, Color.fromRGBO(236, 174, 255, 0.42)),
+    (0.76, Color.fromRGBO(255, 218, 150, 0.24)),
+    (0.83, Colors.transparent),
+    (1.00, Colors.transparent),
+  ];
+
+  static const List<(double, Color)> _secondaryCones = [
+    (0.00, Colors.transparent),
+    (0.10, Colors.transparent),
+    (0.16, Color.fromRGBO(255, 168, 222, 0.26)),
+    (0.21, Color.fromRGBO(124, 244, 255, 0.42)),
+    (0.25, Color.fromRGBO(244, 252, 255, 0.40)),
+    (0.29, Color.fromRGBO(255, 228, 152, 0.30)),
+    (0.36, Colors.transparent),
+    (0.60, Colors.transparent),
+    (0.66, Color.fromRGBO(255, 168, 222, 0.24)),
+    (0.71, Color.fromRGBO(124, 244, 255, 0.38)),
+    (0.75, Color.fromRGBO(244, 252, 255, 0.36)),
+    (0.79, Color.fromRGBO(255, 228, 152, 0.26)),
+    (0.86, Colors.transparent),
+    (1.00, Colors.transparent),
+  ];
+
+  static final Widget _fullPrimaryDisc = _buildDiffractionDisc(_primaryCones, 1.0);
+  static final Widget _fullSecondaryDisc = _buildDiffractionDisc(
+    _secondaryCones,
+    1.0,
+    rotation: const GradientRotation(math.pi * 0.48),
+  );
+
+  static Widget _buildDiffractionDisc(
+    List<(double, Color)> spec,
+    double intensity, {
+    GradientTransform? rotation,
+  }) {
+    final stops = <double>[for (final entry in spec) entry.$1];
+    final colors = <Color>[
+      for (final entry in spec)
+        entry.$2.a == 0.0 || intensity >= 0.999
+            ? entry.$2
+            : entry.$2.withValues(alpha: entry.$2.a * intensity),
+    ];
 
     return DecoratedBox(
       decoration: BoxDecoration(
         shape: .circle,
-        gradient: SweepGradient(
-          colors: [
-            Colors.transparent,
-            highlightStrong,
-            Colors.transparent,
-            highlightSoft,
-            Colors.transparent,
-            highlightStrong,
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.12, 0.28, 0.45, 0.62, 0.78, 1.0],
-        ),
+        gradient: SweepGradient(colors: colors, stops: stops, transform: rotation),
       ),
+    );
+  }
+
+  Widget _buildRotatedLayer({
+    required Widget discChild,
+    required Matrix4 matrix,
+    required double radiansPerCycle,
+  }) {
+    return AnimatedBuilder(
+      animation: spinAnimation,
+      child: discChild,
+      builder: (context, child) {
+        matrix
+          ..setIdentity()
+          ..rotateZ(spinAnimation.value * radiansPerCycle);
+        return Transform(alignment: .center, transform: matrix, child: child);
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryDisc = intensity >= 0.999
+        ? _fullPrimaryDisc
+        : _buildDiffractionDisc(_primaryCones, intensity);
+    final secondaryDisc = intensity >= 0.999
+        ? _fullSecondaryDisc
+        : _buildDiffractionDisc(
+            _secondaryCones,
+            intensity,
+            rotation: const GradientRotation(math.pi * 0.48),
+          );
+
+    return Stack(
+      fit: .expand,
+      children: [
+        _buildRotatedLayer(
+          discChild: primaryDisc,
+          matrix: sheenMatrix,
+          radiansPerCycle: 4.0 * math.pi,
+        ),
+        _buildRotatedLayer(
+          discChild: secondaryDisc,
+          matrix: secondarySheenMatrix,
+          radiansPerCycle: -2.0 * math.pi,
+        ),
+      ],
     );
   }
 }
@@ -705,27 +857,39 @@ class const _SlidingControlPill({
     final pill = DecoratedBox(
       decoration: _pillDecoration,
       child: Padding(
-        padding: const .only(left: 6, right: 35),
-        child: Row(
-          mainAxisSize: .max,
-          children: [
-            _MiniPlayerButton(
-              icon: Icons.replay_rounded,
-              tooltip: 'Putar ulang musik',
-              iconSize: 18,
-              onTap: onReplay,
-            ),
-            const SizedBox(width: 4),
-            ValueListenableBuilder<bool>(
-              valueListenable: musicController.isPlayingListenable,
-              builder: (context, isPlaying, _) => _MiniPlayerButton(
-                icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                tooltip: isPlaying ? 'Jeda musik' : 'Putar musik',
-                iconSize: 20,
-                onTap: onTogglePlayPause,
-              ),
-            ),
-          ],
+        padding: const .only(left: 8, right: 35),
+        child: ValueListenableBuilder<MusicPlaybackState>(
+          valueListenable: musicController.playbackStateListenable,
+          builder: (context, playbackState, _) {
+            final ({IconData icon, String tooltip, double size, VoidCallback onTap}) action =
+                switch (playbackState) {
+                  .playing => (
+                    icon: Icons.pause_rounded,
+                    tooltip: 'Jeda musik',
+                    size: 20.0,
+                    onTap: onTogglePlayPause,
+                  ),
+                  .paused => (
+                    icon: Icons.play_arrow_rounded,
+                    tooltip: 'Putar musik',
+                    size: 20.0,
+                    onTap: onTogglePlayPause,
+                  ),
+                  .completed => (
+                    icon: Icons.replay_rounded,
+                    tooltip: 'Putar ulang musik',
+                    size: 18.0,
+                    onTap: onReplay,
+                  ),
+                };
+
+            return _MiniPlayerButton(
+              icon: action.icon,
+              tooltip: action.tooltip,
+              iconSize: action.size,
+              onTap: action.onTap,
+            );
+          },
         ),
       ),
     );
@@ -733,7 +897,7 @@ class const _SlidingControlPill({
     if (reveal >= 0.999) return pill;
 
     return ClipRect(
-      child: Transform.translate(offset: Offset((1.0 - reveal) * 90.0, 0.0), child: pill),
+      child: Transform.translate(offset: Offset((1.0 - reveal) * 56.0, 0.0), child: pill),
     );
   }
 }
@@ -780,6 +944,8 @@ class const _MiniPlayerButton({
 
 final class _DvdGroovesPainter({required final double intensity, final bool isActive = true})
     extends CustomPainter {
+  static const List<double> _grooveFractions = [0.92, 0.85, 0.78, 0.71, 0.63, 0.54, 0.45, 0.36];
+
   final Paint _groovePaint = Paint()
     ..style = .stroke
     ..strokeWidth = 0.65
@@ -788,6 +954,12 @@ final class _DvdGroovesPainter({required final double intensity, final bool isAc
   final Paint _rimPaint = Paint()
     ..style = .stroke
     ..strokeWidth = 1.15
+    ..isAntiAlias = true;
+
+  final Paint _specularArcPaint = Paint()
+    ..style = .stroke
+    ..strokeWidth = 1.5
+    ..strokeCap = .round
     ..isAntiAlias = true;
 
   final Paint _hubRingPaint = Paint()
@@ -804,30 +976,44 @@ final class _DvdGroovesPainter({required final double intensity, final bool isAc
     final radius = math.min(size.width, size.height) * 0.5;
     if (radius <= 2.0) return;
 
-    _groovePaint.color = Colors.white.withValues(alpha: 0.09 * intensity);
-    canvas
-      ..drawCircle(center, radius * 0.88, _groovePaint)
-      ..drawCircle(center, radius * 0.78, _groovePaint)
-      ..drawCircle(center, radius * 0.68, _groovePaint)
-      ..drawCircle(center, radius * 0.56, _groovePaint)
-      ..drawCircle(center, radius * 0.42, _groovePaint);
+    _groovePaint.color = Colors.white.withValues(alpha: 0.15 * intensity);
+    for (final fraction in _grooveFractions) {
+      canvas.drawCircle(center, radius * fraction, _groovePaint);
+    }
 
-    // Cincin hub DVD tengah + lubang spindle.
-    _hubRingPaint.color = Colors.white.withValues(alpha: 0.22 * intensity);
-    canvas.drawCircle(center, math.max(4.5, radius * 0.21), _hubRingPaint);
+    // Cincin pembatas gelap + hub polikarbonat transparan + lubang spindle.
+    _groovePaint.color = Colors.black.withValues(alpha: 0.45 * intensity);
+    canvas.drawCircle(center, math.max(6.2, radius * 0.31), _groovePaint);
 
-    _groovePaint.color = Colors.white.withValues(alpha: 0.45 * intensity);
-    canvas.drawCircle(center, math.max(4.5, radius * 0.21), _groovePaint);
+    _hubRingPaint.color = Colors.white.withValues(alpha: 0.16 * intensity);
+    canvas.drawCircle(center, math.max(5.5, radius * 0.27), _hubRingPaint);
 
-    _spindleHolePaint.color = Colors.black.withValues(alpha: 0.92 * intensity);
-    canvas.drawCircle(center, math.max(2.2, radius * 0.10), _spindleHolePaint);
+    _groovePaint.color = Colors.white.withValues(alpha: 0.42 * intensity);
+    canvas.drawCircle(center, math.max(5.5, radius * 0.27), _groovePaint);
 
-    _groovePaint.color = Colors.white.withValues(alpha: 0.55 * intensity);
-    canvas.drawCircle(center, math.max(2.2, radius * 0.10), _groovePaint);
+    _hubRingPaint.color = Colors.white.withValues(alpha: 0.30 * intensity);
+    canvas.drawCircle(center, math.max(4.0, radius * 0.185), _hubRingPaint);
 
-    final rimAlpha = (isActive ? 0.42 : 0.22) * intensity;
+    _groovePaint.color = Colors.white.withValues(alpha: 0.62 * intensity);
+    canvas.drawCircle(center, math.max(4.0, radius * 0.185), _groovePaint);
+
+    _spindleHolePaint.color = Colors.black.withValues(alpha: 0.94 * intensity);
+    canvas.drawCircle(center, math.max(2.2, radius * 0.095), _spindleHolePaint);
+
+    _groovePaint.color = Colors.white.withValues(alpha: 0.68 * intensity);
+    canvas.drawCircle(center, math.max(2.2, radius * 0.095), _groovePaint);
+
+    final rimAlpha = (isActive ? 0.44 : 0.22) * intensity;
     _rimPaint.color = Colors.white.withValues(alpha: rimAlpha);
     canvas.drawCircle(center, radius - 0.8, _rimPaint);
+
+    // Kilau Fresnel pada tepi piringan DVD.
+    final rimRect = Rect.fromCircle(center: center, radius: radius - 1.4);
+    _specularArcPaint.color = Colors.white.withValues(alpha: (isActive ? 0.66 : 0.34) * intensity);
+    canvas.drawArc(rimRect, -2.50, 1.25, false, _specularArcPaint);
+
+    _specularArcPaint.color = Colors.white.withValues(alpha: (isActive ? 0.42 : 0.20) * intensity);
+    canvas.drawArc(rimRect, 0.64, 1.15, false, _specularArcPaint);
   }
 
   @override

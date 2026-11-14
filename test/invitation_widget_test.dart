@@ -139,15 +139,13 @@ void main() {
       // Morph completes: cover button gone, DVD controls docked at bottom-right.
       expect(find.text('Buka Undangan'), findsNothing);
       final pauseFinder = find.byIcon(Icons.pause_rounded);
-      final replayFinder = find.byIcon(Icons.replay_rounded);
       expect(pauseFinder, findsOneWidget);
-      expect(replayFinder, findsOneWidget);
+      // Replay button must NOT appear while music is playing or paused.
+      expect(find.byIcon(Icons.replay_rounded), findsNothing);
 
       final pausePos = tester.getCenter(pauseFinder);
-      final replayPos = tester.getCenter(replayFinder);
       expect(pausePos.dx, greaterThan(390 * 0.5));
       expect(pausePos.dy, greaterThan(844 * 0.85));
-      expect(replayPos.dx, lessThan(pausePos.dx));
 
       // Verify DVD disc is actively rotating while music plays.
       double currentDiscAngle() {
@@ -160,43 +158,83 @@ void main() {
         return math.atan2(matrix.entry(1, 0), matrix.entry(0, 0));
       }
 
+      List<double> currentSheenAngles() {
+        final sheenTransforms = tester.widgetList<Transform>(
+          find.descendant(
+            of: find.byType(CoverMusicPlayerOverlay),
+            matching: find.byWidgetPredicate(
+              (w) => w is Transform && w.alignment == Alignment.center && w.child is DecoratedBox,
+            ),
+          ),
+        );
+        return [
+          for (final t in sheenTransforms)
+            math.atan2(t.transform.entry(1, 0), t.transform.entry(0, 0)),
+        ];
+      }
+
+      double angularDelta(double to, double from) =>
+          math.atan2(math.sin(to - from), math.cos(to - from));
+
       final angleStart = currentDiscAngle();
+      final sheenStart = currentSheenAngles();
+      expect(sheenStart, hasLength(2));
       await tester.pump(const Duration(milliseconds: 400));
       final anglePlaying = currentDiscAngle();
+      final sheenPlaying = currentSheenAngles();
       expect((anglePlaying - angleStart).abs(), greaterThan(0.05));
+      expect(angularDelta(sheenPlaying[0], sheenStart[0]), greaterThan(0.4));
+      expect(angularDelta(sheenPlaying[1], sheenStart[1]), lessThan(-0.2));
 
-      // Pause music: icon switches to play and rotation freezes at current angle.
+      // Pause music: icon switches to play (still no replay) and rotation freezes.
       await tester.tap(pauseFinder);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 220));
       expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.replay_rounded), findsNothing);
 
       final anglePaused1 = currentDiscAngle();
+      final sheenPaused1 = currentSheenAngles();
       await tester.pump(const Duration(milliseconds: 400));
       final anglePaused2 = currentDiscAngle();
+      final sheenPaused2 = currentSheenAngles();
       expect((anglePaused2 - anglePaused1).abs(), lessThan(0.0001));
+      expect(angularDelta(sheenPaused2[0], sheenPaused1[0]).abs(), lessThan(0.0001));
+      expect(angularDelta(sheenPaused2[1], sheenPaused1[1]).abs(), lessThan(0.0001));
 
       // Play music: icon switches back to pause and rotation resumes smoothly.
       await tester.tap(find.byIcon(Icons.play_arrow_rounded));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 220));
       expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.replay_rounded), findsNothing);
 
       final angleResumed1 = currentDiscAngle();
       await tester.pump(const Duration(milliseconds: 400));
       final angleResumed2 = currentDiscAngle();
       expect((angleResumed2 - angleResumed1).abs(), greaterThan(0.05));
 
-      // Pause again, then tap Replay: music restarts and switches back to playing state.
-      await tester.tap(find.byIcon(Icons.pause_rounded));
+      // When music completes: Replay replaces Pause/Play and rotation stops.
+      final overlay = tester.widget<CoverMusicPlayerOverlay>(find.byType(CoverMusicPlayerOverlay));
+      overlay.musicController.debugCompleteTrack();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 220));
-      expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
 
-      await tester.tap(replayFinder);
+      expect(find.byIcon(Icons.replay_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.pause_rounded), findsNothing);
+      expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
+
+      final angleEnded1 = currentDiscAngle();
+      await tester.pump(const Duration(milliseconds: 400));
+      final angleEnded2 = currentDiscAngle();
+      expect((angleEnded2 - angleEnded1).abs(), lessThan(0.0001));
+
+      // Tapping Replay restarts playback and switches button back to Pause.
+      await tester.tap(find.byIcon(Icons.replay_rounded));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.replay_rounded), findsNothing);
     },
   );
 
