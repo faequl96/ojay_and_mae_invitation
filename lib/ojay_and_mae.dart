@@ -333,8 +333,8 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   final ScrollController _scrollController = ScrollController();
   late final InvitationMusicController _musicController;
   late final AnimationController _coverMorphController;
+  final ValueNotifier<bool> _isMorphComplete = ValueNotifier<bool>(false);
 
-  bool _isMorphComplete = false;
   int _navGeneration = 0;
 
   late final List<GlobalKey> _sectionKeys = List<GlobalKey>.generate(
@@ -357,16 +357,17 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
   void dispose() {
     _musicController.dispose();
     _coverMorphController.dispose();
+    _isMorphComplete.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   void _openInvitation() {
-    if (_coverMorphController.isAnimating || _isMorphComplete) return;
+    if (_coverMorphController.isAnimating || _isMorphComplete.value) return;
     HapticFeedback.mediumImpact();
     _musicController.play();
     _coverMorphController.forward().then((_) {
-      if (mounted) setState(() => _isMorphComplete = true);
+      if (mounted) _isMorphComplete.value = true;
     });
   }
 
@@ -432,31 +433,35 @@ class _InvitationScreenState() extends State<InvitationScreen> with SingleTicker
       body: Stack(
         fit: .expand,
         children: [
-          if (isDesktop)
-            Row(
-              children: [
-                Expanded(flex: 5, child: _DesktopLeftShowcase(onNavigate: _scrollToSection)),
-                const ColoredBox(
-                  color: Colors.white12,
-                  child: SizedBox(width: 1, height: .infinity),
-                ),
-                Expanded(flex: 6, child: scrollBody),
-              ],
-            )
-          else
-            scrollBody,
-          CoverMusicPlayerOverlay(
-            recipientName: widget.recipientName,
-            coverBgAsset: InvitationAssets.coverBg,
-            coverLogoAsset: InvitationAssets.coverInitialFF,
-            musicController: _musicController,
-            morphAnimation: _coverMorphController,
-            isMorphComplete: _isMorphComplete,
-            onOpenInvitation: _openInvitation,
-            titleScriptStyle: GothicTheme.script24,
-            coupleGothicStyle: GothicTheme.gothicAlt44,
-            guestIntroStyle: GothicTheme.script16,
-            guestNameStyle: GothicTheme.script28,
+          RepaintBoundary(
+            child: isDesktop
+                ? Row(
+                    children: [
+                      Expanded(flex: 5, child: _DesktopLeftShowcase(onNavigate: _scrollToSection)),
+                      const ColoredBox(
+                        color: Colors.white12,
+                        child: SizedBox(width: 1, height: .infinity),
+                      ),
+                      Expanded(flex: 6, child: scrollBody),
+                    ],
+                  )
+                : scrollBody,
+          ),
+          ValueListenableBuilder<bool>(
+            valueListenable: _isMorphComplete,
+            builder: (context, morphComplete, _) => CoverMusicPlayerOverlay(
+              recipientName: widget.recipientName,
+              coverBgAsset: InvitationAssets.coverBg,
+              coverLogoAsset: InvitationAssets.coverInitialFF,
+              musicController: _musicController,
+              morphAnimation: _coverMorphController,
+              isMorphComplete: morphComplete,
+              onOpenInvitation: _openInvitation,
+              titleScriptStyle: GothicTheme.script24,
+              coupleGothicStyle: GothicTheme.gothicAlt44,
+              guestIntroStyle: GothicTheme.script16,
+              guestNameStyle: GothicTheme.script28,
+            ),
           ),
         ],
       ),
@@ -690,41 +695,43 @@ class const _HeroSection() extends StatelessWidget {
               ),
             ),
           ),
-          Padding(
-            padding: const .symmetric(horizontal: 24),
-            child: Column(
-              mainAxisAlignment: .center,
-              children: [
-                const SizedBox(height: 24),
-                const ScrollReveal(
-                  delay: Duration(milliseconds: 100),
-                  triggerFraction: 0.90,
-                  child: Text('Pernikahan Kami', textAlign: .center, style: GothicTheme.gothic36),
-                ),
-                const SizedBox(height: 42),
-                ScrollReveal(
-                  delay: const Duration(milliseconds: 250),
-                  initialScale: 0.86,
-                  triggerFraction: 0.90,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 340, maxHeight: 420),
-                    child: const InvitationAssetImage(
-                      assetPath: InvitationAssets.skullCouple,
-                      fit: .contain,
+          RepaintBoundary(
+            child: Padding(
+              padding: const .symmetric(horizontal: 24),
+              child: Column(
+                mainAxisAlignment: .center,
+                children: [
+                  const SizedBox(height: 24),
+                  const ScrollReveal(
+                    delay: Duration(milliseconds: 100),
+                    triggerFraction: 0.90,
+                    child: Text('Pernikahan Kami', textAlign: .center, style: GothicTheme.gothic36),
+                  ),
+                  const SizedBox(height: 42),
+                  ScrollReveal(
+                    delay: const Duration(milliseconds: 250),
+                    initialScale: 0.86,
+                    triggerFraction: 0.90,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 340, maxHeight: 420),
+                      child: const InvitationAssetImage(
+                        assetPath: InvitationAssets.skullCouple,
+                        fit: .contain,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 60),
-                const ScrollReveal(
-                  delay: Duration(milliseconds: 400),
-                  triggerFraction: 0.92,
-                  child: Text(
-                    'Sabtu, 19 Desember 2026',
-                    textAlign: .center,
-                    style: GothicTheme.gothic24,
+                  const SizedBox(height: 60),
+                  const ScrollReveal(
+                    delay: Duration(milliseconds: 400),
+                    triggerFraction: 0.92,
+                    child: Text(
+                      'Sabtu, 19 Desember 2026',
+                      textAlign: .center,
+                      style: GothicTheme.gothic24,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
