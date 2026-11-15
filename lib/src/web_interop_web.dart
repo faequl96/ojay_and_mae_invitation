@@ -81,6 +81,35 @@ extension type _JSBlobOptions._(JSObject _) implements JSObject {
   external factory ({String type});
 }
 
+@JS('window.isSecureContext')
+external bool? get _windowIsSecureContext;
+
+@JS('window.ContactsManager')
+external JSAny? get _windowContactsManager;
+
+@JS('navigator.contacts')
+external _JSContactsManager? get _navigatorContacts;
+
+extension type _JSContactsManager._(JSObject _) implements JSObject {
+  @JS('select')
+  external JSAny? get _selectMember;
+
+  external JSPromise<JSArray<_JSContactInfo>> select(
+    JSArray<JSString> properties, [
+    _JSContactSelectOptions? options,
+  ]);
+}
+
+@JS('Object')
+extension type _JSContactSelectOptions._(JSObject _) implements JSObject {
+  external factory ({bool multiple});
+}
+
+extension type _JSContactInfo._(JSObject _) implements JSObject {
+  external JSArray<JSString?>? get name;
+  external JSArray<JSString?>? get tel;
+}
+
 @JS('__ojayMaeActiveAudio')
 external _JSAudio? get _globalActiveAudio;
 
@@ -279,6 +308,59 @@ abstract final class WebInterop._() {
       if (!completer.isCompleted) completer.complete(null);
     }
     return completer.future;
+  }
+
+  static bool get isContactPickerSupported {
+    try {
+      if (_windowIsSecureContext == false) return false;
+      final contacts = _navigatorContacts;
+      return _windowContactsManager != null && contacts != null && contacts._selectMember != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<({String status, String name, List<String> phones})> pickPhoneContact() async {
+    if (!isContactPickerSupported) {
+      return (status: 'unsupported', name: '', phones: const <String>[]);
+    }
+    try {
+      final contacts = _navigatorContacts;
+      if (contacts == null) {
+        return (status: 'unsupported', name: '', phones: const <String>[]);
+      }
+      final selected = await contacts
+          .select(
+            ['name'.toJS, 'tel'.toJS].toJS,
+            _JSContactSelectOptions(multiple: false),
+          )
+          .toDart;
+      final items = selected.toDart;
+      if (items.isEmpty) {
+        return (status: 'cancelled', name: '', phones: const <String>[]);
+      }
+      final first = items.first;
+      final rawNames = first.name?.toDart ?? const <JSString?>[];
+      var pickedName = '';
+      for (final raw in rawNames) {
+        final candidate = raw?.toDart.trim() ?? '';
+        if (candidate.isNotEmpty) {
+          pickedName = candidate;
+          break;
+        }
+      }
+      final rawTels = first.tel?.toDart ?? const <JSString?>[];
+      final phones = <String>[
+        for (final tel in rawTels)
+          if ((tel?.toDart.trim() ?? '').isNotEmpty) tel!.toDart.trim(),
+      ];
+      return (status: 'picked', name: pickedName, phones: phones);
+    } catch (error) {
+      if (error.toString().contains('AbortError')) {
+        return (status: 'cancelled', name: '', phones: const <String>[]);
+      }
+      return (status: 'failed', name: '', phones: const <String>[]);
+    }
   }
 }
 

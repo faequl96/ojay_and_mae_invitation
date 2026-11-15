@@ -32,8 +32,12 @@ enum _MobileDashboardTab(final String label) {
 }
 
 /// Dashboard pengiriman link undangan Ojay & Mae via WhatsApp.
-class const InvitationDashboardScreen({super.key, final GuestDashboardStore? store})
-    extends StatefulWidget {
+class const InvitationDashboardScreen({
+  super.key,
+  final GuestDashboardStore? store,
+  final ContactPickerCallback? onPickContact,
+  final ContactPickerCallback? onPickContactFile,
+}) extends StatefulWidget {
   @override
   State<InvitationDashboardScreen> createState() => _InvitationDashboardScreenState();
 }
@@ -105,6 +109,8 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
       builder: (ctx) => _GuestFormDialog(
         title: 'Tambah Tamu Baru',
         submitLabel: 'Tambah Daftar',
+        onPickContact: widget.onPickContact,
+        onPickContactFile: widget.onPickContactFile,
         onSave: ({required name, required phone, required category}) {
           final created = _store.addGuest(name: name, phone: phone, category: category);
           Navigator.of(ctx).pop();
@@ -123,6 +129,8 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
         initialName: guest.name,
         initialPhone: guest.phone,
         initialCategory: guest.category,
+        onPickContact: widget.onPickContact,
+        onPickContactFile: widget.onPickContactFile,
         onSave: ({required name, required phone, required category}) {
           _store.updateGuest(id: guest.id, name: name, phone: phone, category: category);
           Navigator.of(ctx).pop();
@@ -1767,6 +1775,8 @@ class const _GuestFormDialog({
   required final String title,
   required final String submitLabel,
   required final _GuestSaveCallback onSave,
+  final ContactPickerCallback? onPickContact,
+  final ContactPickerCallback? onPickContactFile,
   final String initialName = '',
   final String initialPhone = '',
   final String initialCategory = 'Teman',
@@ -1776,10 +1786,18 @@ class const _GuestFormDialog({
 }
 
 class _GuestFormDialogState() extends State<_GuestFormDialog> {
+  static final ButtonStyle _contactPickButtonStyle = OutlinedButton.styleFrom(
+    foregroundColor: _DashboardPalette.whatsappGreen,
+    side: const BorderSide(color: _DashboardPalette.whatsappGreen, width: 0.8),
+    shape: const RoundedRectangleBorder(borderRadius: .all(.circular(10))),
+    padding: const .symmetric(horizontal: 12, vertical: 10),
+  );
+
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final ValueNotifier<String> _category;
   final ValueNotifier<String?> _errorText = ValueNotifier<String?>(null);
+  final ValueNotifier<bool> _isPickingContact = ValueNotifier<bool>(false);
 
   @override
   void initState() {
@@ -1795,7 +1813,108 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
     _phoneController.dispose();
     _category.dispose();
     _errorText.dispose();
+    _isPickingContact.dispose();
     super.dispose();
+  }
+
+  Future<void> _handlePickContact() {
+    final pickFn = widget.onPickContact ?? WhatsAppInvitationHelper.pickDeviceContact;
+    return _runContactPicker(pickFn, allowFallbackDialog: true);
+  }
+
+  Future<void> _handlePickContactFromVcf() {
+    final pickFileFn = widget.onPickContactFile ?? _pickContactsFromVcfFile;
+    return _runContactPicker(pickFileFn, allowFallbackDialog: false);
+  }
+
+  Future<void> _runContactPicker(
+    Future<ContactPickResult> Function() picker, {
+    required bool allowFallbackDialog,
+  }) async {
+    if (_isPickingContact.value) return;
+    _errorText.value = null;
+    _isPickingContact.value = true;
+    ContactPickResult result;
+    try {
+      result = await picker();
+    } finally {
+      if (mounted) _isPickingContact.value = false;
+    }
+    if (!mounted) return;
+    await _applyContactPickResult(result, allowFallbackDialog: allowFallbackDialog);
+  }
+
+  static Future<ContactPickResult> _pickContactsFromVcfFile() async {
+    final picked = await WebInterop.pickTextFile(accept: '.vcf,text/vcard');
+    if (picked == null) return const ContactPickResult(status: .cancelled);
+    final contacts = WhatsAppInvitationHelper.parseVCardContacts(picked.content);
+    if (contacts.isEmpty) return const ContactPickResult(status: .failed);
+    return ContactPickResult(status: .picked, contacts: contacts);
+  }
+
+  Future<void> _applyContactPickResult(
+    ContactPickResult result, {
+    required bool allowFallbackDialog,
+  }) async {
+    switch (result.status) {
+      case .cancelled:
+        return;
+      case .unsupported:
+        if (!allowFallbackDialog) {
+          _errorText.value =
+              'Pemilih kontak tidak didukung di browser ini. Anda bisa input manual atau kosongkan untuk pilih dari WhatsApp nanti.';
+          return;
+        }
+        final wantsVcf = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => const _ContactPickerFallbackDialog(),
+        );
+        if (!mounted || wantsVcf != true) return;
+        await _handlePickContactFromVcf();
+      case .failed:
+        _errorText.value = allowFallbackDialog
+            ? 'Gagal membaca kontak perangkat. Anda bisa ketik manual atau kosongkan untuk pilih dari WhatsApp nanti.'
+            : 'File kontak (.vcf) tidak berisi data kontak atau nomor telepon yang valid.';
+      case .picked:
+        if (result.contacts.isEmpty) return;
+        if (result.contacts.length == 1) {
+          await _applySingleContact(result.contacts.first);
+          return;
+        }
+        final chosen = await showDialog<ContactCandidate>(
+          context: context,
+          builder: (ctx) => _SelectContactDialog(contacts: result.contacts),
+        );
+        if (!mounted || chosen == null) return;
+        await _applySingleContact(chosen);
+    }
+  }
+
+  Future<void> _applySingleContact(ContactCandidate contact) async {
+    if (_nameController.text.trim().isEmpty && contact.name.trim().isNotEmpty) {
+      _nameController.text = contact.name.trim();
+    }
+    if (contact.phones.isEmpty) {
+      _errorText.value = contact.name.isNotEmpty
+          ? 'Kontak "${contact.name}" tidak memiliki nomor telepon yang valid. Kosongkan saja agar bisa pilih di WhatsApp nanti.'
+          : 'Kontak yang dipilih tidak memiliki nomor telepon yang valid.';
+      return;
+    }
+    if (contact.phones.length == 1) {
+      _fillContactPhone(contact.phones.first);
+      return;
+    }
+    final selectedPhone = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _SelectContactPhoneDialog(contact: contact),
+    );
+    if (!mounted || selectedPhone == null || selectedPhone.isEmpty) return;
+    _fillContactPhone(selectedPhone);
+  }
+
+  void _fillContactPhone(String normalizedPhone) {
+    _phoneController.text = WhatsAppInvitationHelper.formatPhoneDisplay(normalizedPhone);
+    _errorText.value = null;
   }
 
   void _submit() {
@@ -1840,6 +1959,28 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
                 hint: '08123456789',
                 keyboardType: .phone,
               ),
+              const SizedBox(height: 8),
+              ValueListenableBuilder<bool>(
+                valueListenable: _isPickingContact,
+                builder: (context, isPicking, _) => Align(
+                  alignment: .centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: isPicking ? null : _handlePickContact,
+                    style: _contactPickButtonStyle,
+                    icon: const Icon(Icons.contacts_rounded, size: 16),
+                    label: Text(
+                      isPicking ? 'Membuka Kontak...' : 'Pilih dari Kontak',
+                      style: GothicTheme.sans(
+                        size: 12,
+                        color: _DashboardPalette.whatsappGreen,
+                        weight: .bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const _OptionalPhoneInfoBox(),
               const SizedBox(height: 10),
               Text('Kategori', style: GothicTheme.sans(size: 11, color: Colors.white60)),
               const SizedBox(height: 6),
@@ -1890,6 +2031,275 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
             widget.submitLabel,
             style: GothicTheme.sans(size: 12, color: GothicTheme.bgBlack, weight: .bold),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class const _OptionalPhoneInfoBox() extends StatelessWidget {
+  static const BoxDecoration _decoration = BoxDecoration(
+    color: _DashboardPalette.skyDark,
+    borderRadius: .all(.circular(10)),
+    border: Border.fromBorderSide(BorderSide(color: _DashboardPalette.sky, width: 0.5)),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: _decoration,
+      child: Padding(
+        padding: const .symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          crossAxisAlignment: .start,
+          children: [
+            const Padding(
+              padding: .only(top: 1),
+              child: Icon(Icons.info_outline_rounded, size: 15, color: _DashboardPalette.sky),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Nomor WA tidak wajib diisi. Jika dikosongkan, nanti Anda bisa langsung memilih kontak dari WhatsApp saat mengirim.',
+                style: GothicTheme.sans(size: 11, color: Colors.white70, height: 1.35),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class const _ContactPickerFallbackDialog() extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: _DashboardPalette.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: .all(.circular(16)),
+        side: BorderSide(color: _DashboardPalette.borderStrong),
+      ),
+      title: Text('Pilih Kontak', style: GothicTheme.sans(size: 15, weight: .bold)),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: .min,
+          crossAxisAlignment: .stretch,
+          children: [
+            Text(
+              'Akses daftar kontak langsung hanya didukung di browser HP Android '
+              '(Chrome, Edge, atau Samsung Internet).',
+              style: GothicTheme.sans(size: 12, color: Colors.white70),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Sebagai alternatif, Anda bisa memilih file kontak (.vcf / vCard) dari perangkat '
+              'atau mengosongkan kolom nomor WA — karena nomor tidak wajib diisi dan kontak bisa '
+              'dipilih langsung dari WhatsApp saat mengirim nanti.',
+              style: GothicTheme.sans(size: 12, color: Colors.white70),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text('Tutup', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _DashboardPalette.whatsappGreen,
+            foregroundColor: GothicTheme.bgBlack,
+          ),
+          icon: const Icon(Icons.upload_file_rounded, size: 16),
+          label: Text(
+            'Pilih File Kontak (.vcf)',
+            style: GothicTheme.sans(size: 12, color: GothicTheme.bgBlack, weight: .bold),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class const _SelectContactPhoneDialog({required final ContactCandidate contact})
+    extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final title = contact.name.isNotEmpty
+        ? 'Pilih Nomor untuk ${contact.name}'
+        : 'Pilih Nomor WhatsApp';
+    return AlertDialog(
+      backgroundColor: _DashboardPalette.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: .all(.circular(16)),
+        side: BorderSide(color: _DashboardPalette.borderStrong),
+      ),
+      title: Text(title, style: GothicTheme.sans(size: 15, weight: .bold)),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: .min,
+          crossAxisAlignment: .stretch,
+          children: [
+            for (var i = 0; i < contact.phones.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).pop(contact.phones[i]),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GothicTheme.white,
+                  side: const BorderSide(color: _DashboardPalette.borderStrong),
+                  alignment: .centerLeft,
+                  padding: const .symmetric(horizontal: 12, vertical: 12),
+                ),
+                icon: const Icon(
+                  Icons.phone_android_rounded,
+                  size: 16,
+                  color: _DashboardPalette.whatsappGreen,
+                ),
+                label: Text(
+                  WhatsAppInvitationHelper.formatPhoneDisplay(contact.phones[i]),
+                  style: GothicTheme.sans(size: 12.5, weight: .w600),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('Batal', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+        ),
+      ],
+    );
+  }
+}
+
+class const _SelectContactDialog({required final List<ContactCandidate> contacts})
+    extends StatefulWidget {
+  @override
+  State<_SelectContactDialog> createState() => _SelectContactDialogState();
+}
+
+class _SelectContactDialogState() extends State<_SelectContactDialog> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: _DashboardPalette.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: .all(.circular(16)),
+        side: BorderSide(color: _DashboardPalette.borderStrong),
+      ),
+      title: Text(
+        'Pilih Kontak (${widget.contacts.length})',
+        style: GothicTheme.sans(size: 15, weight: .bold),
+      ),
+      content: SizedBox(
+        width: 400,
+        height: 360,
+        child: Column(
+          crossAxisAlignment: .stretch,
+          children: [
+            _DashboardTextField(
+              controller: _searchController,
+              label: 'Cari Kontak',
+              hint: 'Ketik nama atau nomor...',
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: ListenableBuilder(
+                listenable: _searchController,
+                builder: (context, _) {
+                  final q = _searchController.text.trim().toLowerCase();
+                  final filtered = [
+                    for (final c in widget.contacts)
+                      if (q.isEmpty ||
+                          c.name.toLowerCase().contains(q) ||
+                          c.phones.any((p) => p.contains(q)))
+                        c,
+                  ];
+                  if (filtered.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'Tidak ada kontak yang cocok.',
+                        style: GothicTheme.sans(size: 12, color: Colors.white54),
+                      ),
+                    );
+                  }
+                  return ListView.builder(
+                    itemCount: filtered.length,
+                    itemExtent: 64,
+                    itemBuilder: (context, index) {
+                      final contact = filtered[index];
+                      final subtitle = contact.phones.isNotEmpty
+                          ? contact.phones.map(WhatsAppInvitationHelper.formatPhoneDisplay).join(', ')
+                          : 'Tanpa nomor telepon';
+                      return Padding(
+                        padding: const .only(bottom: 6),
+                        child: InkWell(
+                          onTap: () => Navigator.of(context).pop(contact),
+                          borderRadius: const .all(.circular(10)),
+                          child: DecoratedBox(
+                            decoration: const BoxDecoration(
+                              color: _DashboardPalette.surfaceElevated,
+                              borderRadius: .all(.circular(10)),
+                              border: Border.fromBorderSide(
+                                BorderSide(color: _DashboardPalette.border),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const .symmetric(horizontal: 12, vertical: 8),
+                              child: Column(
+                                mainAxisAlignment: .center,
+                                crossAxisAlignment: .start,
+                                children: [
+                                  Text(
+                                    contact.name.isNotEmpty ? contact.name : 'Tanpa Nama',
+                                    maxLines: 1,
+                                    overflow: .ellipsis,
+                                    style: GothicTheme.sans(size: 12.5, weight: .bold),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    subtitle,
+                                    maxLines: 1,
+                                    overflow: .ellipsis,
+                                    style: GothicTheme.sans(
+                                      size: 11.5,
+                                      color: contact.phones.isNotEmpty
+                                          ? Colors.white70
+                                          : _DashboardPalette.amber,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('Batal', style: GothicTheme.sans(size: 12, color: Colors.white60)),
         ),
       ],
     );
@@ -2009,7 +2419,8 @@ class _BulkImportDialogState() extends State<_BulkImportDialog> {
             children: [
               Text(
                 'Tempel data berformat CSV atau JSON, atau pilih file .csv / .json.\n'
-                'Format CSV per baris: Nama Tamu, Nomor WA, Kategori (atau cukup Nama saja).',
+                'Format CSV per baris: Nama Tamu, Nomor WA (opsional), Kategori — '
+                'jika nomor kosong, nanti bisa pilih kontak dari WhatsApp.',
                 style: GothicTheme.sans(size: 11.5, color: Colors.white70),
               ),
               const SizedBox(height: 10),

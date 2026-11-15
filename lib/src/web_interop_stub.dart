@@ -32,6 +32,15 @@ abstract final class WebInterop._() {
 
   static Future<({String name, String content})?> pickTextFile({String accept = '.csv,.json'}) =>
       Future<({String name, String content})?>.value(null);
+
+  static bool get isContactPickerSupported => false;
+
+  static Future<({String status, String name, List<String> phones})> pickPhoneContact() =>
+      Future<({String status, String name, List<String> phones})>.value((
+        status: 'unsupported',
+        name: '',
+        phones: const <String>[],
+      ));
 }
 
 /// Pemutar audio non-web (stub untuk pengujian widget VM).

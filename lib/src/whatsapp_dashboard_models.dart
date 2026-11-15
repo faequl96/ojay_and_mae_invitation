@@ -197,6 +197,28 @@ final class const ParsedGuestDraft({
   required final bool isPhoneValid,
 });
 
+/// Status hasil pemilihan kontak dari perangkat atau file kontak (.vcf).
+enum ContactPickStatus() {
+  picked,
+  cancelled,
+  unsupported,
+  failed,
+}
+
+/// Satu kandidat kontak hasil pembacaan Contact Picker / vCard (.vcf).
+final class const ContactCandidate({
+  required final String name,
+  required final List<String> phones,
+});
+
+/// Hasil pemanggilan pemilih kontak perangkat atau file kontak (.vcf).
+final class const ContactPickResult({
+  required final ContactPickStatus status,
+  final List<ContactCandidate> contacts = const [],
+});
+
+typedef ContactPickerCallback = Future<ContactPickResult> Function();
+
 /// Utilitas murni: normalisasi nomor WhatsApp, pembentuk URL personalisasi,
 /// engine template pesan, dan parser/exporter CSV & JSON.
 abstract final class WhatsAppInvitationHelper._() {
@@ -314,6 +336,227 @@ abstract final class WhatsAppInvitationHelper._() {
     }
     return '+$normalized';
   }
+
+  static List<String> normalizeUniquePhones(Iterable<String> rawPhones) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final raw in rawPhones) {
+      final normalized = normalizePhone(raw);
+      if (normalized.length < 8 || normalized.length > 16) continue;
+      if (seen.add(normalized)) {
+        result.add(normalized);
+      }
+    }
+    return List<String>.unmodifiable(result);
+  }
+
+  /// Membuka pemilih kontak perangkat (Web Contact Picker API) bila didukung browser.
+  static Future<ContactPickResult> pickDeviceContact() async {
+    final res = await WebInterop.pickPhoneContact();
+    return switch (res.status) {
+      'unsupported' => const ContactPickResult(status: .unsupported),
+      'cancelled' => const ContactPickResult(status: .cancelled),
+      'picked' => ContactPickResult(
+        status: .picked,
+        contacts: [
+          ContactCandidate(
+            name: res.name.trim(),
+            phones: normalizeUniquePhones(res.phones),
+          ),
+        ],
+      ),
+      _ => const ContactPickResult(status: .failed),
+    };
+  }
+
+  /// Mem-parsing daftar kontak dari konten file vCard (.vcf) v2.1 / v3.0 / v4.0.
+  static List<ContactCandidate> parseVCardContacts(String rawText) {
+    if (rawText.trim().isEmpty) return const [];
+    final cleaned = rawText.startsWith('\uFEFF') ? rawText.substring(1) : rawText;
+    final lines = _unfoldVCardLines(cleaned);
+    final contacts = <ContactCandidate>[];
+
+    var inCard = false;
+    var fnName = '';
+    var nName = '';
+    final rawPhones = <String>[];
+
+    void flushCard() {
+      if (!inCard) return;
+      final resolvedName = fnName.isNotEmpty ? fnName : nName;
+      final phones = normalizeUniquePhones(rawPhones);
+      if (resolvedName.isNotEmpty || phones.isNotEmpty) {
+        contacts.add(ContactCandidate(name: resolvedName, phones: phones));
+      }
+      inCard = false;
+      fnName = '';
+      nName = '';
+      rawPhones.clear();
+    }
+
+    for (final line in lines) {
+      final trimmedUpper = line.trim().toUpperCase();
+      if (trimmedUpper == 'BEGIN:VCARD') {
+        flushCard();
+        inCard = true;
+        continue;
+      }
+      if (trimmedUpper == 'END:VCARD') {
+        flushCard();
+        continue;
+      }
+      if (!inCard) continue;
+
+      final colonIdx = line.indexOf(':');
+      if (colonIdx <= 0) continue;
+
+      final header = line.substring(0, colonIdx);
+      final rawValue = line.substring(colonIdx + 1);
+      final segments = header.split(';');
+      final rawProp = segments.first.trim();
+      final dotIdx = rawProp.indexOf('.');
+      final prop = (dotIdx != -1 ? rawProp.substring(dotIdx + 1) : rawProp).trim().toUpperCase();
+
+      final params = segments.skip(1).toList(growable: false);
+      final isQuotedPrintable = params.any((p) => p.toUpperCase().contains('QUOTED-PRINTABLE'));
+      final decodedValue = isQuotedPrintable ? _decodeQuotedPrintable(rawValue) : rawValue;
+
+      switch (prop) {
+        case 'FN':
+          final candidate = _unescapeVCardText(decodedValue).trim();
+          if (fnName.isEmpty && candidate.isNotEmpty) {
+            fnName = candidate;
+          }
+        case 'N':
+          if (nName.isEmpty) {
+            final parts = _splitVCardComponents(decodedValue);
+            final ordered = <String>[
+              if (parts.length > 3) parts[3],
+              if (parts.length > 1) parts[1],
+              if (parts.length > 2) parts[2],
+              if (parts.isNotEmpty) parts[0],
+              if (parts.length > 4) parts[4],
+            ];
+            final joined = [
+              for (final part in ordered)
+                if (part.trim().isNotEmpty) part.trim(),
+            ].join(' ');
+            if (joined.isNotEmpty) {
+              nName = joined;
+            }
+          }
+        case 'TEL':
+          var telValue = decodedValue.trim();
+          if (telValue.toLowerCase().startsWith('tel:')) {
+            telValue = telValue.substring(4).trim();
+          }
+          if (telValue.isEmpty) {
+            for (final param in params) {
+              final lowerParam = param.trim().toLowerCase();
+              if (lowerParam.startsWith('waid=')) {
+                telValue = param.trim().substring(5).trim();
+                break;
+              }
+            }
+          }
+          if (telValue.isNotEmpty) {
+            rawPhones.add(telValue);
+          }
+      }
+    }
+
+    flushCard();
+    return List<ContactCandidate>.unmodifiable(contacts);
+  }
+
+  static List<String> _unfoldVCardLines(String rawText) {
+    final normalized = rawText.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final rawLines = normalized.split('\n');
+    final unfolded = <String>[];
+    for (final line in rawLines) {
+      if (unfolded.isNotEmpty) {
+        final isFolded = line.startsWith(' ') || line.startsWith('\t');
+        final isQpContinuation =
+            unfolded.last.endsWith('=') && _isQuotedPrintableHeader(unfolded.last);
+        if (isFolded || isQpContinuation) {
+          final prev = unfolded.last;
+          final prefix = isQpContinuation ? prev.substring(0, prev.length - 1) : prev;
+          final suffix = isFolded ? line.substring(1) : line;
+          unfolded.last = '$prefix$suffix';
+          continue;
+        }
+      }
+      unfolded.add(line);
+    }
+    return unfolded;
+  }
+
+  static bool _isQuotedPrintableHeader(String line) {
+    final colonIdx = line.indexOf(':');
+    if (colonIdx <= 0) return false;
+    return line.substring(0, colonIdx).toUpperCase().contains('QUOTED-PRINTABLE');
+  }
+
+  static String _decodeQuotedPrintable(String input) {
+    final bytes = <int>[];
+    for (var i = 0; i < input.length; i++) {
+      if (input[i] == '=' && i + 2 < input.length) {
+        final hex = int.tryParse(input.substring(i + 1, i + 3), radix: 16);
+        if (hex != null) {
+          bytes.add(hex);
+          i += 2;
+          continue;
+        }
+      }
+      bytes.addAll(utf8.encode(input[i]));
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  static List<String> _splitVCardComponents(String input) {
+    final result = <String>[];
+    final buf = StringBuffer();
+    var escaped = false;
+    for (var i = 0; i < input.length; i++) {
+      final ch = input[i];
+      if (escaped) {
+        buf.write(_unescapeVCardChar(ch));
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == ';') {
+        result.add(buf.toString().trim());
+        buf.clear();
+      } else {
+        buf.write(ch);
+      }
+    }
+    result.add(buf.toString().trim());
+    return result;
+  }
+
+  static String _unescapeVCardText(String input) {
+    final buf = StringBuffer();
+    var escaped = false;
+    for (var i = 0; i < input.length; i++) {
+      final ch = input[i];
+      if (escaped) {
+        buf.write(_unescapeVCardChar(ch));
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else {
+        buf.write(ch);
+      }
+    }
+    return buf.toString();
+  }
+
+  static String _unescapeVCardChar(String ch) => switch (ch) {
+    'n' || 'N' => ' ',
+    ',' || ';' || '\\' => ch,
+    _ => ch,
+  };
 
   static const List<String> _dashboardPathSuffixes = ['/dashboard', '/index.html'];
 

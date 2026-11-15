@@ -229,6 +229,58 @@ Hendra Kusuma
       expect(restored.summary.uncertainCount, 2);
       expect(restored.summary.byNormalizedRecipient['budi santoso']?.attendanceLabel, 'Hadir');
     });
+
+    test('parseVCardContacts parses vCard 2.1/3.0/4.0, iOS item TEL, QP names, and deduplicates phones', () {
+      const sampleVcf = '''
+BEGIN:VCARD
+VERSION:3.0
+FN:Budi Santoso
+TEL;TYPE=CELL:+62 812-3456-7890
+TEL;TYPE=HOME:081234567890
+TEL;TYPE=WORK:0856-9876-5432
+TEL;TYPE=OTHER:123
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+N:Permata;Dian;Ayu;Ibu;
+item1.TEL;type=CELL;type=VOICE:0813-1111-2222
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+FN:Rina Wijaya
+TEL;VALUE=uri:tel:+62-819-0000-1111
+END:VCARD
+BEGIN:VCARD
+VERSION:2.1
+FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:=41=68=6D=61=64=20=46=61=
+ =75=7A=69
+TEL;waid=6287712345678:
+END:VCARD
+BEGIN:VCARD
+VERSION:2.1
+FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:=44=65=77=69=20=4C=65=
+=73=74=61=72=69
+TEL;CELL:0878-1234-5678
+END:VCARD
+''';
+      final contacts = WhatsAppInvitationHelper.parseVCardContacts(sampleVcf);
+      expect(contacts, hasLength(5));
+
+      expect(contacts[0].name, 'Budi Santoso');
+      expect(contacts[0].phones, ['6281234567890', '6285698765432']);
+
+      expect(contacts[1].name, 'Ibu Dian Ayu Permata');
+      expect(contacts[1].phones, ['6281311112222']);
+
+      expect(contacts[2].name, 'Rina Wijaya');
+      expect(contacts[2].phones, ['6281900001111']);
+
+      expect(contacts[3].name, 'Ahmad Fauzi');
+      expect(contacts[3].phones, ['6287712345678']);
+
+      expect(contacts[4].name, 'Dewi Lestari');
+      expect(contacts[4].phones, ['6287812345678']);
+    });
   });
 
   group('InvitationDashboardScreen widget & routing tests', () {
@@ -589,5 +641,166 @@ Hendra Kusuma
       expect(find.byType(InvitationScreen), findsOneWidget);
       expect(find.text('Buka Undangan'), findsOneWidget);
     });
+
+    testWidgets(
+      'Guest form displays optional WA info, picks single & multi-number contacts, and handles unsupported fallback (.vcf)',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final store = GuestDashboardStore(baseUrl: 'https://ojay-mae.vercel.app');
+        addTearDown(store.dispose);
+
+        var pickScenario = 0;
+        Future<ContactPickResult> mockPickContact() async {
+          return switch (pickScenario) {
+            0 => const ContactPickResult(
+              status: .picked,
+              contacts: [
+                ContactCandidate(name: 'Budi Kontak', phones: ['6281234567890']),
+              ],
+            ),
+            1 => const ContactPickResult(
+              status: .picked,
+              contacts: [
+                ContactCandidate(
+                  name: 'Multi Nomor',
+                  phones: ['6281111111111', '6282222222222'],
+                ),
+              ],
+            ),
+            _ => const ContactPickResult(status: .unsupported),
+          };
+        }
+
+        Future<ContactPickResult> mockPickVcfFile() async {
+          return const ContactPickResult(
+            status: .picked,
+            contacts: [
+              ContactCandidate(name: 'Siti vCard', phones: ['6285612345678']),
+              ContactCandidate(name: 'Andi vCard', phones: ['6287712345678']),
+            ],
+          );
+        }
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: InvitationDashboardScreen(
+              store: store,
+              onPickContact: mockPickContact,
+              onPickContactFile: mockPickVcfFile,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // 1. Open Tambah Tamu Baru -> info optional number & Pilih dari Kontak are visible.
+        await tester.tap(find.text('Tambah Tamu Baru'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pilih dari Kontak'), findsOneWidget);
+        expect(
+          find.textContaining('Nomor WA tidak wajib diisi'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('memilih kontak dari WhatsApp'),
+          findsOneWidget,
+        );
+
+        // Pick single-phone contact when name is empty -> fills both name and phone.
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+
+        final nameField = find.widgetWithText(TextField, 'Nama Tamu *');
+        final phoneField = find.widgetWithText(TextField, 'Nomor WhatsApp (Opsional)');
+        expect(tester.widget<TextField>(nameField).controller?.text, 'Budi Kontak');
+        expect(tester.widget<TextField>(phoneField).controller?.text, '+62 812-3456-7890');
+
+        // Pick multi-phone contact when name is already filled -> preserves name, opens phone chooser.
+        pickScenario = 1;
+        await tester.enterText(nameField, 'Bapak Budi & Ibu');
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pilih Nomor untuk Multi Nomor'), findsOneWidget);
+        await tester.tap(find.text('+62 822-2222-2222'));
+        await tester.pumpAndSettle();
+
+        expect(tester.widget<TextField>(nameField).controller?.text, 'Bapak Budi & Ibu');
+        expect(tester.widget<TextField>(phoneField).controller?.text, '+62 822-2222-2222');
+
+        await tester.tap(find.text('Tambah Daftar'));
+        await tester.pumpAndSettle();
+        expect(store.guests.first.name, 'Bapak Budi & Ibu');
+        expect(store.guests.first.phone, '6282222222222');
+
+        // 2. Unsupported browser fallback -> opens guidance dialog & picks from .vcf contact list.
+        pickScenario = 2;
+        await tester.tap(find.text('Tambah Tamu Baru'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('Akses daftar kontak langsung'), findsOneWidget);
+        expect(find.text('Pilih File Kontak (.vcf)'), findsOneWidget);
+
+        await tester.tap(find.text('Pilih File Kontak (.vcf)'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pilih Kontak (2)'), findsOneWidget);
+        await tester.tap(find.text('Siti vCard'));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.widget<TextField>(find.widgetWithText(TextField, 'Nama Tamu *')).controller?.text,
+          'Siti vCard',
+        );
+        expect(
+          tester
+              .widget<TextField>(find.widgetWithText(TextField, 'Nomor WhatsApp (Opsional)'))
+              .controller
+              ?.text,
+          '+62 856-1234-5678',
+        );
+
+        await tester.tap(find.text('Tambah Daftar'));
+        await tester.pumpAndSettle();
+        expect(store.totalGuests, 2);
+
+        // 3. Adding guest without WA number works and shows 'Pilih Kontak WA'.
+        await tester.tap(find.text('Tambah Tamu Baru'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Nama Tamu *'),
+          'Tamu Tanpa WA',
+        );
+        await tester.tap(find.text('Tambah Daftar'));
+        await tester.pumpAndSettle();
+
+        expect(store.totalGuests, 3);
+        expect(
+          store.guests.where((guest) => guest.name == 'Tamu Tanpa WA').single.hasPhone,
+          isFalse,
+        );
+        expect(find.text('Pilih Kontak WA'), findsOneWidget);
+
+        // 4. Edit Data Tamu also displays 'Pilih dari Kontak' & optional WA info.
+        final firstMenuButton = find.byIcon(Icons.more_vert_rounded).first;
+        await tester.ensureVisible(firstMenuButton);
+        await tester.tap(firstMenuButton);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit Data Tamu'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pilih dari Kontak'), findsOneWidget);
+        expect(find.textContaining('Nomor WA tidak wajib diisi'), findsOneWidget);
+        await tester.tap(find.text('Batal'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }
