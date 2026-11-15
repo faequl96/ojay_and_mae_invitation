@@ -36,8 +36,10 @@ final class const GuestInvitation({
   required final int sentCount,
   required final DateTime createdAt,
   final DateTime? sentAt,
+  final String customMessage = '',
 }) {
   bool get hasPhone => phone.isNotEmpty;
+  bool get hasCustomMessage => customMessage.trim().isNotEmpty;
   String get normalizedName => name.trim().toLowerCase();
 
   GuestInvitation copyWith({
@@ -51,6 +53,8 @@ final class const GuestInvitation({
     DateTime? createdAt,
     DateTime? sentAt,
     bool clearSentAt = false,
+    String? customMessage,
+    bool clearCustomMessage = false,
   }) {
     return GuestInvitation(
       id: id ?? this.id,
@@ -62,6 +66,7 @@ final class const GuestInvitation({
       sentCount: sentCount ?? this.sentCount,
       createdAt: createdAt ?? this.createdAt,
       sentAt: clearSentAt ? null : (sentAt ?? this.sentAt),
+      customMessage: clearCustomMessage ? '' : (customMessage ?? this.customMessage),
     );
   }
 
@@ -75,6 +80,7 @@ final class const GuestInvitation({
     'sentCount': sentCount,
     'createdAt': createdAt.toIso8601String(),
     'sentAt': sentAt?.toIso8601String(),
+    if (customMessage.isNotEmpty) 'customMessage': customMessage,
   };
 
   static GuestInvitation? fromJsonObject(Object? raw) {
@@ -87,6 +93,9 @@ final class const GuestInvitation({
     final normalizedPhone = WhatsAppInvitationHelper.normalizePhone(rawPhone);
     final category = (raw['category'] as String?)?.trim();
     final note = (raw['note'] as String?)?.trim() ?? '';
+    final rawCustomMessage =
+        (raw['customMessage'] as String?) ?? (raw['message'] as String?) ?? '';
+    final customMessage = rawCustomMessage.trim();
     final status = GuestSendStatus.fromWire(raw['sendStatus'] as String?);
     final rawCount = raw['sentCount'];
     final sentCount = switch (rawCount) {
@@ -107,6 +116,7 @@ final class const GuestInvitation({
       sentCount: sentCount,
       createdAt: createdAt,
       sentAt: sentAt,
+      customMessage: customMessage,
     );
   }
 
@@ -654,6 +664,183 @@ abstract final class WhatsAppInvitationHelper._() {
         .replaceAll('{kategori}', category.trim());
   }
 
+  static final List<RegExp> _protectedTemplateSpans = [
+    RegExp(r'Achmad Fauzi \(Ojay\) & Fitri Anggraini \(Mae\)'),
+    RegExp(r'Achmad Fauzi \(Ojay\)'),
+    RegExp(r'Fitri Anggraini \(Mae\)'),
+    RegExp(r'Ojay & Mae'),
+    RegExp(r'Bapak/Ibu/Saudara/i'),
+  ];
+
+  static String _normalizeMessageText(String text) =>
+      text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+
+  static String _stableTemplateHash(String input) {
+    var hash = 0x811c9dc5;
+    for (final byte in utf8.encode(input)) {
+      hash ^= byte;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return hash.toRadixString(36);
+  }
+
+  static List<({int start, int end})> _findProtectedRanges(String text) {
+    final ranges = <({int start, int end})>[];
+    for (final pattern in _protectedTemplateSpans) {
+      for (final match in pattern.allMatches(text)) {
+        ranges.add((start: match.start, end: match.end));
+      }
+    }
+    return ranges;
+  }
+
+  static bool _overlapsRanges(int start, int end, List<({int start, int end})> ranges) {
+    for (final r in ranges) {
+      if (start < r.end && end > r.start) return true;
+    }
+    return false;
+  }
+
+  static String _replaceGuestNameWithPlaceholder(String text, String guestName) {
+    final cleanName = guestName.trim();
+    if (cleanName.isEmpty || text.contains('{nama}')) return text;
+
+    final protected = _findProtectedRanges(text);
+    final escaped = RegExp.escape(cleanName);
+    final boldPattern = RegExp(r'\*' + escaped + r'\*');
+    var replaced = _replaceMatchesOutsideRanges(text, boldPattern, '*{nama}*', protected);
+    if (replaced != text) return replaced;
+
+    final exactPattern = RegExp(r'(?<![\p{L}\p{N}])' + escaped + r'(?![\p{L}\p{N}])', unicode: true);
+    replaced = _replaceMatchesOutsideRanges(text, exactPattern, '{nama}', protected);
+    if (replaced != text) return replaced;
+
+    final insensitivePattern = RegExp(
+      r'(?<![\p{L}\p{N}])' + escaped + r'(?![\p{L}\p{N}])',
+      unicode: true,
+      caseSensitive: false,
+    );
+    return _replaceMatchesOutsideRanges(text, insensitivePattern, '{nama}', protected);
+  }
+
+  static String _replaceMatchesOutsideRanges(
+    String text,
+    RegExp pattern,
+    String replacement,
+    List<({int start, int end})> protected,
+  ) {
+    final buf = StringBuffer();
+    var cursor = 0;
+    var changed = false;
+    for (final match in pattern.allMatches(text)) {
+      if (_overlapsRanges(match.start, match.end, protected)) continue;
+      buf
+        ..write(text.substring(cursor, match.start))
+        ..write(replacement);
+      cursor = match.end;
+      changed = true;
+    }
+    if (!changed) return text;
+    buf.write(text.substring(cursor));
+    return buf.toString();
+  }
+
+  /// Mengubah isi pesan tamu menjadi template yang dapat dipakai ulang (`{nama}`, `{link}`).
+  static String extractTemplateFromGuestMessage({
+    required String message,
+    required GuestInvitation guest,
+    required String baseUrl,
+  }) {
+    var result = _normalizeMessageText(message);
+    if (result.isEmpty) return '';
+
+    final expectedLink = buildInvitationLink(baseUrl: baseUrl, guestName: guest.name);
+    if (!result.contains('{link}') && expectedLink.isNotEmpty) {
+      result = result.replaceAll(expectedLink, '{link}');
+      if (!result.contains('{link}')) {
+        final query = Uri.tryParse(expectedLink)?.query ?? '';
+        if (query.isNotEmpty) {
+          final anyOriginLink = RegExp(r'https?://[^\s]+\?' + RegExp.escape(query));
+          result = result.replaceAll(anyOriginLink, '{link}');
+        }
+      }
+    }
+
+    return _replaceGuestNameWithPlaceholder(result, guest.name);
+  }
+
+  /// Mengecek apakah pesan tamu sama dengan salah satu dari 3 preset bawaan.
+  static bool isSameAsBuiltInPreset({
+    required String message,
+    required GuestInvitation guest,
+    required String baseUrl,
+  }) {
+    final normalized = _normalizeMessageText(message);
+    if (normalized.isEmpty) return true;
+
+    final link = buildInvitationLink(baseUrl: baseUrl, guestName: guest.name);
+    final extracted = extractTemplateFromGuestMessage(
+      message: normalized,
+      guest: guest,
+      baseUrl: baseUrl,
+    );
+
+    for (final preset in presets) {
+      final presetNorm = _normalizeMessageText(preset.body);
+      if (normalized == presetNorm || extracted == presetNorm) {
+        return true;
+      }
+      final rendered = _normalizeMessageText(
+        renderMessage(
+          template: preset.body,
+          guestName: guest.name,
+          invitationLink: link,
+          category: guest.category,
+        ),
+      );
+      if (normalized == rendered) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Menghasilkan item template tambahan dari isi pesan tamu yang berbeda dari 3 preset bawaan.
+  static List<WhatsAppTemplatePreset> buildGuestDerivedTemplates({
+    required List<GuestInvitation> guests,
+    required String baseUrl,
+  }) {
+    final seenBodies = <String>{
+      for (final preset in presets) _normalizeMessageText(preset.body),
+    };
+    final derived = <WhatsAppTemplatePreset>[];
+
+    for (final guest in guests) {
+      if (!guest.hasCustomMessage) continue;
+      if (isSameAsBuiltInPreset(message: guest.customMessage, guest: guest, baseUrl: baseUrl)) {
+        continue;
+      }
+      final templateBody = extractTemplateFromGuestMessage(
+        message: guest.customMessage,
+        guest: guest,
+        baseUrl: baseUrl,
+      );
+      if (templateBody.isEmpty || !seenBodies.add(templateBody)) continue;
+
+      final cleanName = guest.name.trim();
+      final shortName = cleanName.length > 18 ? '${cleanName.substring(0, 17)}…' : cleanName;
+      derived.add(
+        WhatsAppTemplatePreset(
+          id: 'guest_tpl_${_stableTemplateHash(templateBody)}',
+          name: shortName.isNotEmpty ? 'Pesan: $shortName' : 'Pesan Tamu',
+          body: templateBody,
+        ),
+      );
+    }
+
+    return List<WhatsAppTemplatePreset>.unmodifiable(derived);
+  }
+
   /// Membentuk URL resmi `https://wa.me/...` yang 100% gratis tanpa API berbayar.
   static Uri buildWhatsAppUri({required String normalizedPhone, required String message}) {
     final cleanDigits = normalizePhone(normalizedPhone);
@@ -1096,10 +1283,15 @@ final class GuestDashboardStore({String? baseUrl}) extends ChangeNotifier {
     notifyListeners();
   }
 
+  List<WhatsAppTemplatePreset> get availableTemplatePresets => List<WhatsAppTemplatePreset>.unmodifiable([
+    ...WhatsAppInvitationHelper.presets,
+    ...WhatsAppInvitationHelper.buildGuestDerivedTemplates(guests: _guests, baseUrl: baseUrl),
+  ]);
+
   String buildLinkForGuest(GuestInvitation guest) =>
       WhatsAppInvitationHelper.buildInvitationLink(baseUrl: baseUrl, guestName: guest.name);
 
-  String buildMessageForGuest(GuestInvitation guest) {
+  String renderActiveTemplateForGuest(GuestInvitation guest) {
     final link = buildLinkForGuest(guest);
     return WhatsAppInvitationHelper.renderMessage(
       template: _templateText,
@@ -1107,6 +1299,19 @@ final class GuestDashboardStore({String? baseUrl}) extends ChangeNotifier {
       invitationLink: link,
       category: guest.category,
     );
+  }
+
+  String buildMessageForGuest(GuestInvitation guest) {
+    if (guest.hasCustomMessage) {
+      final link = buildLinkForGuest(guest);
+      return WhatsAppInvitationHelper.renderMessage(
+        template: guest.customMessage,
+        guestName: guest.name,
+        invitationLink: link,
+        category: guest.category,
+      );
+    }
+    return renderActiveTemplateForGuest(guest);
   }
 
   Uri buildWhatsAppUriForGuest(GuestInvitation guest, {String? customMessage}) {
@@ -1274,16 +1479,84 @@ final class GuestDashboardStore({String? baseUrl}) extends ChangeNotifier {
     ]);
   }
 
-  void markAsSent(String id) {
-    final now = DateTime.now();
+  void updateGuestMessage(String id, String message) {
+    final trimmed = message.trim();
     _guests = List<GuestInvitation>.unmodifiable([
       for (final g in _guests)
         if (g.id == id)
-          g.copyWith(sendStatus: .sent, sentCount: g.sentCount + 1, sentAt: now)
+          _applyMessageUpdate(g, trimmed)
         else
           g,
     ]);
     _commitAndNotify();
+  }
+
+  GuestInvitation _applyMessageUpdate(GuestInvitation guest, String trimmedMessage) {
+    if (trimmedMessage.isEmpty) {
+      return guest.copyWith(clearCustomMessage: true);
+    }
+    final activeRendered = renderActiveTemplateForGuest(guest).trim();
+    final isSameAsBuiltIn = WhatsAppInvitationHelper.isSameAsBuiltInPreset(
+      message: trimmedMessage,
+      guest: guest,
+      baseUrl: baseUrl,
+    );
+    if (trimmedMessage == activeRendered && isSameAsBuiltIn) {
+      return guest.copyWith(clearCustomMessage: true);
+    }
+    return guest.copyWith(customMessage: trimmedMessage);
+  }
+
+  void clearGuestCustomMessage(String id) {
+    _guests = List<GuestInvitation>.unmodifiable([
+      for (final g in _guests)
+        if (g.id == id) g.copyWith(clearCustomMessage: true) else g,
+    ]);
+    _commitAndNotify();
+  }
+
+  void markAsSent(String id, {String? sentMessage}) {
+    final now = DateTime.now();
+    _guests = List<GuestInvitation>.unmodifiable([
+      for (final g in _guests)
+        if (g.id == id)
+          _markGuestSent(g, now, sentMessage)
+        else
+          g,
+    ]);
+    _commitAndNotify();
+  }
+
+  GuestInvitation _markGuestSent(GuestInvitation guest, DateTime now, String? sentMessage) {
+    if (sentMessage == null) {
+      return guest.copyWith(sendStatus: .sent, sentCount: guest.sentCount + 1, sentAt: now);
+    }
+    final trimmed = sentMessage.trim();
+    if (trimmed.isEmpty) {
+      return guest.copyWith(sendStatus: .sent, sentCount: guest.sentCount + 1, sentAt: now);
+    }
+    final isSameAsBuiltIn = WhatsAppInvitationHelper.isSameAsBuiltInPreset(
+      message: trimmed,
+      guest: guest,
+      baseUrl: baseUrl,
+    );
+    if (!isSameAsBuiltIn) {
+      return guest.copyWith(
+        sendStatus: .sent,
+        sentCount: guest.sentCount + 1,
+        sentAt: now,
+        customMessage: trimmed,
+      );
+    }
+    if (guest.hasCustomMessage && trimmed != guest.customMessage.trim()) {
+      return guest.copyWith(
+        sendStatus: .sent,
+        sentCount: guest.sentCount + 1,
+        sentAt: now,
+        clearCustomMessage: true,
+      );
+    }
+    return guest.copyWith(sendStatus: .sent, sentCount: guest.sentCount + 1, sentAt: now);
   }
 
   void markAsPending(String id) {
@@ -1360,7 +1633,19 @@ final class GuestDashboardStore({String? baseUrl}) extends ChangeNotifier {
 
   void updateTemplate(String nextTemplate, {String? presetId}) {
     _templateText = nextTemplate;
-    _activePresetId = presetId ?? 'custom';
+    if (presetId != null) {
+      _activePresetId = presetId;
+    } else {
+      final normalized = nextTemplate.trim();
+      var matchedId = 'custom';
+      for (final preset in availableTemplatePresets) {
+        if (preset.body.trim() == normalized) {
+          matchedId = preset.id;
+          break;
+        }
+      }
+      _activePresetId = matchedId;
+    }
     _commitAndNotify();
   }
 

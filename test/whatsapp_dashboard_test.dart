@@ -281,6 +281,133 @@ END:VCARD
       expect(contacts[4].name, 'Dewi Lestari');
       expect(contacts[4].phones, ['6287812345678']);
     });
+
+    test('GuestInvitation customMessage persists in JSON and copyWith clears it', () {
+      final guest = GuestInvitation(
+        id: 'g-msg-1',
+        name: 'Budi Santoso',
+        phone: '6281234567890',
+        category: 'Teman',
+        note: '',
+        sendStatus: .pending,
+        sentCount: 0,
+        customMessage: 'Halo Budi, ini undangan khusus buatmu.',
+        createdAt: DateTime(2026, 11, 16, 8),
+      );
+      expect(guest.hasCustomMessage, isTrue);
+
+      final roundTripped = GuestInvitation.fromJsonObject(guest.toJson());
+      expect(roundTripped, isNotNull);
+      expect(roundTripped!.customMessage, 'Halo Budi, ini undangan khusus buatmu.');
+      expect(roundTripped.hasCustomMessage, isTrue);
+
+      final cleared = roundTripped.copyWith(clearCustomMessage: true);
+      expect(cleared.customMessage, isEmpty);
+      expect(cleared.hasCustomMessage, isFalse);
+    });
+
+    test('extractTemplateFromGuestMessage and isSameAsBuiltInPreset protect couple names', () {
+      const baseUrl = 'https://ojay-mae.vercel.app';
+      final guestOjay = GuestInvitation(
+        id: 'g-ojay',
+        name: 'Ojay',
+        phone: '6281234567890',
+        category: 'Keluarga',
+        note: '',
+        sendStatus: .pending,
+        sentCount: 0,
+        createdAt: DateTime(2026, 11, 16, 8),
+      );
+      final link = WhatsAppInvitationHelper.buildInvitationLink(
+        baseUrl: baseUrl,
+        guestName: guestOjay.name,
+      );
+
+      for (final preset in WhatsAppInvitationHelper.presets) {
+        final rendered = WhatsAppInvitationHelper.renderMessage(
+          template: preset.body,
+          guestName: guestOjay.name,
+          invitationLink: link,
+          category: guestOjay.category,
+        );
+        expect(
+          WhatsAppInvitationHelper.isSameAsBuiltInPreset(
+            message: rendered,
+            guest: guestOjay,
+            baseUrl: baseUrl,
+          ),
+          isTrue,
+        );
+      }
+
+      final customMessage =
+          'Halo Ojay, jangan lupa datang ke pernikahan Ojay & Mae di sini: $link';
+      final extracted = WhatsAppInvitationHelper.extractTemplateFromGuestMessage(
+        message: customMessage,
+        guest: guestOjay,
+        baseUrl: baseUrl,
+      );
+      expect(extracted, 'Halo {nama}, jangan lupa datang ke pernikahan Ojay & Mae di sini: {link}');
+      expect(
+        WhatsAppInvitationHelper.isSameAsBuiltInPreset(
+          message: customMessage,
+          guest: guestOjay,
+          baseUrl: baseUrl,
+        ),
+        isFalse,
+      );
+    });
+
+    test('buildGuestDerivedTemplates & GuestDashboardStore surface distinct guest messages as templates', () {
+      final store = GuestDashboardStore(baseUrl: 'https://ojay-mae.vercel.app');
+      addTearDown(store.dispose);
+
+      final budi = store.addGuest(name: 'Budi Santoso', phone: '081234567890');
+      final siti = store.addGuest(name: 'Siti Aminah', phone: '085611112222');
+      final andi = store.addGuest(name: 'Andi Wijaya', phone: '087712345678');
+
+      expect(store.availableTemplatePresets, hasLength(3));
+
+      final budiLink = store.buildLinkForGuest(budi);
+      final sitiLink = store.buildLinkForGuest(siti);
+      final andiLink = store.buildLinkForGuest(andi);
+
+      store.updateGuestMessage(budi.id, 'Assalamualaikum Budi Santoso, linkmu: $budiLink');
+      expect(store.guests.firstWhere((g) => g.id == budi.id).hasCustomMessage, isTrue);
+      expect(
+        store.buildMessageForGuest(store.guests.firstWhere((g) => g.id == budi.id)),
+        'Assalamualaikum Budi Santoso, linkmu: $budiLink',
+      );
+      expect(store.availableTemplatePresets, hasLength(4));
+      expect(store.availableTemplatePresets[3].name, 'Pesan: Budi Santoso');
+      expect(store.availableTemplatePresets[3].body, 'Assalamualaikum {nama}, linkmu: {link}');
+
+      // Same derived template pattern for another guest is deduplicated cleanly.
+      store.updateGuestMessage(siti.id, 'Assalamualaikum Siti Aminah, linkmu: $sitiLink');
+      expect(store.availableTemplatePresets, hasLength(4));
+
+      // A different custom message adds another template option via markAsSent too.
+      // Newer guests sit first in store.guests, so Andi (newest) and Siti share/order cleanly.
+      store.markAsSent(andi.id, sentMessage: 'Hai Andi Wijaya, mampir ya ke $andiLink');
+      expect(store.availableTemplatePresets, hasLength(5));
+      expect(store.availableTemplatePresets[3].name, 'Pesan: Andi Wijaya');
+      expect(store.availableTemplatePresets[3].body, 'Hai {nama}, mampir ya ke {link}');
+      expect(store.availableTemplatePresets[4].name, 'Pesan: Siti Aminah');
+
+      // Selecting derived preset applies its placeholder template to other guests.
+      store.selectPreset(store.availableTemplatePresets[3]);
+      expect(store.activePresetId, store.availableTemplatePresets[3].id);
+      expect(
+        store.renderActiveTemplateForGuest(budi),
+        'Hai Budi Santoso, mampir ya ke $budiLink',
+      );
+
+      // Clearing custom messages removes derived presets.
+      store.clearGuestCustomMessage(budi.id);
+      store.clearGuestCustomMessage(siti.id);
+      store.clearGuestCustomMessage(andi.id);
+      expect(store.availableTemplatePresets, hasLength(3));
+    });
   });
 
   group('InvitationDashboardScreen widget & routing tests', () {
@@ -572,9 +699,10 @@ END:VCARD
       await tester.pumpAndSettle();
 
       expect(
-        find.descendant(of: find.byType(AlertDialog), matching: find.text('Tambah Tamu Baru')),
+        find.descendant(of: find.byType(BottomSheet), matching: find.text('Tambah Tamu Baru')),
         findsOneWidget,
       );
+      expect(find.byType(AlertDialog), findsNothing);
       expect(find.text('Catatan (Opsional)'), findsNothing);
       expect(find.text('Simpan & Kirim WA'), findsNothing);
       await tester.enterText(find.widgetWithText(TextField, 'Nama Tamu *'), 'Dian Permata');
@@ -802,5 +930,257 @@ END:VCARD
         expect(tester.takeException(), isNull);
       },
     );
+
+    testWidgets(
+      'Picking contact twice updates both name and phone unless user typed custom name, and .failed shows fallback sheet',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final store = GuestDashboardStore(baseUrl: 'https://ojay-mae.vercel.app');
+        addTearDown(store.dispose);
+
+        var pickScenario = 0;
+        Future<ContactPickResult> mockPickContact() async {
+          return switch (pickScenario) {
+            0 => const ContactPickResult(
+              status: .picked,
+              contacts: [
+                ContactCandidate(name: 'Budi Pertama', phones: ['6281111111111']),
+              ],
+            ),
+            1 => const ContactPickResult(
+              status: .picked,
+              contacts: [
+                ContactCandidate(name: 'Andi Kedua', phones: ['6282222222222']),
+              ],
+            ),
+            2 => const ContactPickResult(
+              status: .picked,
+              contacts: [
+                ContactCandidate(
+                  name: 'Multi Ketiga',
+                  phones: ['6283333333333', '6284444444444'],
+                ),
+              ],
+            ),
+            _ => const ContactPickResult(status: .failed),
+          };
+        }
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: InvitationDashboardScreen(
+              store: store,
+              onPickContact: mockPickContact,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Tambah Tamu Baru'));
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+
+        final nameField = find.widgetWithText(TextField, 'Nama Tamu *');
+        final phoneField = find.widgetWithText(TextField, 'Nomor WhatsApp (Opsional)');
+
+        // Pick 1 -> fills name & phone.
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(nameField).controller?.text, 'Budi Pertama');
+        expect(tester.widget<TextField>(phoneField).controller?.text, '+62 811-1111-1111');
+
+        // Pick 2 inside the SAME popup -> updates BOTH name and phone.
+        pickScenario = 1;
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(nameField).controller?.text, 'Andi Kedua');
+        expect(tester.widget<TextField>(phoneField).controller?.text, '+62 822-2222-2222');
+
+        // Pick 3 (multi-phone) inside the SAME popup -> updates BOTH name and chosen phone.
+        pickScenario = 2;
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+        expect(find.text('Pilih Nomor untuk Multi Ketiga'), findsOneWidget);
+        await tester.tap(find.text('+62 844-4444-4444'));
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(nameField).controller?.text, 'Multi Ketiga');
+        expect(tester.widget<TextField>(phoneField).controller?.text, '+62 844-4444-4444');
+
+        // Manual edit to name IS preserved when picking another contact afterwards.
+        await tester.enterText(nameField, 'Keluarga Budi Khusus');
+        pickScenario = 0;
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(nameField).controller?.text, 'Keluarga Budi Khusus');
+        expect(tester.widget<TextField>(phoneField).controller?.text, '+62 811-1111-1111');
+
+        // Contact picker runtime failure (e.g. Opera Android) opens fallback BottomSheet with .vcf option.
+        pickScenario = 3;
+        await tester.tap(find.text('Pilih dari Kontak'));
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsWidgets);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.textContaining('Opera'), findsOneWidget);
+        expect(find.text('Pilih File Kontak (.vcf)'), findsOneWidget);
+        await tester.tap(find.text('Tutup'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Tambah Daftar'));
+        await tester.pumpAndSettle();
+        expect(store.totalGuests, 1);
+        expect(store.guests.single.name, 'Keluarga Budi Khusus');
+        expect(store.guests.single.phone, '6281111111111');
+      },
+    );
+
+    testWidgets(
+      'Mobile uses BottomSheet for all popups, 3-dot Lihat Isi Pesan edits guest message, and derives Template Pesan item',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        final store = GuestDashboardStore(baseUrl: 'https://ojay-mae.vercel.app');
+        addTearDown(store.dispose);
+        final citra = store.addGuest(name: 'Citra Lestari', phone: '081234567890');
+
+        await tester.pumpWidget(MaterialApp(home: InvitationDashboardScreen(store: store)));
+        await tester.pump();
+
+        // Verify mobile header action popups all open in BottomSheet, not AlertDialog.
+        await tester.tap(find.text('Menu'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Backup / CSV'));
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Tutup')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Impor Massal'));
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Batal'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Antrean Kirim (1)'));
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Tutup')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Tutup'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        // Open 3-dot menu -> Lihat Isi Pesan -> opens BottomSheet.
+        final menuBtn = find.byIcon(Icons.more_vert_rounded).first;
+        await tester.ensureVisible(menuBtn);
+        await tester.tap(menuBtn);
+        await tester.pumpAndSettle();
+        expect(find.text('Lihat Isi Pesan'), findsOneWidget);
+
+        await tester.tap(find.text('Lihat Isi Pesan'));
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          find.descendant(of: find.byType(BottomSheet), matching: find.text('Isi Pesan Undangan')),
+          findsOneWidget,
+        );
+        expect(find.text('Reset Template'), findsNothing);
+        expect(tester.takeException(), isNull);
+
+        // Edit guest message and save.
+        final citraLink = store.buildLinkForGuest(citra);
+        final msgField = find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.byType(TextField),
+        );
+        await tester.enterText(
+          msgField,
+          'Halo Citra Lestari, yuk sempatkan hadir via $citraLink ya!',
+        );
+        await tester.pump();
+        await tester.tap(find.text('Simpan Pesan'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        expect(store.guests.single.hasCustomMessage, isTrue);
+        expect(find.text('Pesan Khusus'), findsOneWidget);
+
+        // Template Pesan tab now includes derived item 'Pesan: Citra Lestari'.
+        await tester.tap(find.text('Template Pesan'));
+        await tester.pumpAndSettle();
+        expect(find.text('Pesan: Citra Lestari'), findsOneWidget);
+
+        await tester.tap(find.text('Pesan: Citra Lestari'));
+        await tester.pump();
+        expect(store.templateText, 'Halo {nama}, yuk sempatkan hadir via {link} ya!');
+
+        // Switch back to guests tab and Reset Template -> removes badge and derived item.
+        await tester.tap(find.text('Daftar Tamu (1)'));
+        await tester.pumpAndSettle();
+        final menuBtnAgain = find.byIcon(Icons.more_vert_rounded).first;
+        await tester.ensureVisible(menuBtnAgain);
+        await tester.tap(menuBtnAgain);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Lihat Isi Pesan'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Reset Template'), findsOneWidget);
+        await tester.tap(find.text('Reset Template'));
+        await tester.pumpAndSettle();
+
+        expect(store.guests.single.hasCustomMessage, isFalse);
+        await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Tutup')));
+        await tester.pumpAndSettle();
+        expect(find.text('Pesan Khusus'), findsNothing);
+
+        await tester.tap(find.text('Template Pesan'));
+        await tester.pumpAndSettle();
+        expect(find.text('Pesan: Citra Lestari'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('Desktop viewport keeps AlertDialog for Lihat Isi Pesan popup', (tester) async {
+      tester.view.physicalSize = const Size(1280, 860);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final store = GuestDashboardStore(baseUrl: 'https://ojay-mae.vercel.app');
+      addTearDown(store.dispose);
+      store.addGuest(name: 'Dimas Pratama', phone: '081234567890');
+
+      await tester.pumpWidget(MaterialApp(home: InvitationDashboardScreen(store: store)));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Lihat Isi Pesan'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(
+        find.descendant(of: find.byType(AlertDialog), matching: find.text('Isi Pesan Undangan')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Tutup'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
   });
 }

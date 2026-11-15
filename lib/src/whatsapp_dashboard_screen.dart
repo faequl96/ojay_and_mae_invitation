@@ -85,11 +85,39 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
       );
   }
 
+  static bool _isMobileViewport(BuildContext context) => MediaQuery.sizeOf(context).width < 1020;
+
+  static Future<T?> _showAdaptivePopup<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+    bool barrierDismissible = true,
+  }) {
+    if (_isMobileViewport(context)) {
+      return showModalBottomSheet<T>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        isDismissible: barrierDismissible,
+        enableDrag: barrierDismissible,
+        backgroundColor: _DashboardPalette.surface,
+        clipBehavior: .antiAlias,
+        shape: const RoundedRectangleBorder(borderRadius: .vertical(top: .circular(20))),
+        builder: builder,
+      );
+    }
+    return showDialog<T>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: builder,
+    );
+  }
+
   void _sendGuestViaWhatsApp(GuestInvitation guest) {
-    final waUri = _store.buildWhatsAppUriForGuest(guest);
+    final message = _store.buildMessageForGuest(guest);
+    final waUri = _store.buildWhatsAppUriForGuest(guest, customMessage: message);
     // Buka URL secara sinkron di dalam event tap agar tidak diblokir popup blocker browser.
     WebInterop.openExternalUrl(waUri.toString());
-    _store.markAsSent(guest.id);
+    _store.markAsSent(guest.id, sentMessage: message);
     _showSnackBar(
       guest.hasPhone
           ? 'Membuka WhatsApp untuk ${guest.name}...'
@@ -104,7 +132,7 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
   }
 
   Future<void> _openAddGuestDialog() {
-    return showDialog<void>(
+    return _showAdaptivePopup<void>(
       context: context,
       builder: (ctx) => _GuestFormDialog(
         title: 'Tambah Tamu Baru',
@@ -121,7 +149,7 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
   }
 
   Future<void> _openEditGuestDialog(GuestInvitation guest) {
-    return showDialog<void>(
+    return _showAdaptivePopup<void>(
       context: context,
       builder: (ctx) => _GuestFormDialog(
         title: 'Edit Data Tamu',
@@ -140,8 +168,30 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
     );
   }
 
+  Future<void> _openGuestMessagePopup(GuestInvitation guest) {
+    return _showAdaptivePopup<void>(
+      context: context,
+      builder: (ctx) => _GuestMessageDialog(
+        guest: guest,
+        store: _store,
+        onShowMessage: _showSnackBar,
+        onCopyMessage: (msg) => _copyText(msg, 'Pesan WA ${guest.name} disalin!'),
+        onSendMessage: (msg) {
+          final waUri = _store.buildWhatsAppUriForGuest(guest, customMessage: msg);
+          WebInterop.openExternalUrl(waUri.toString());
+          _store.markAsSent(guest.id, sentMessage: msg);
+          _showSnackBar(
+            guest.hasPhone
+                ? 'Membuka WhatsApp untuk ${guest.name}...'
+                : 'Membuka WhatsApp — pilih kontak untuk ${guest.name}.',
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _openBulkImportDialog() {
-    return showDialog<void>(
+    return _showAdaptivePopup<void>(
       context: context,
       builder: (ctx) => _BulkImportDialog(
         onImportDrafts: (drafts, {required skipDuplicates}) {
@@ -166,7 +216,7 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
   }
 
   Future<void> _openBackupExportDialog() {
-    return showDialog<void>(
+    return _showAdaptivePopup<void>(
       context: context,
       builder: (ctx) => _BackupExportDialog(store: _store, onShowMessage: _showSnackBar),
     );
@@ -179,7 +229,7 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
       return;
     }
 
-    await showDialog<void>(
+    await _showAdaptivePopup<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _GuidedQueueDialog(
@@ -188,9 +238,10 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
         onSendViaWhatsApp: (guest, customMessage) {
           final waUri = _store.buildWhatsAppUriForGuest(guest, customMessage: customMessage);
           WebInterop.openExternalUrl(waUri.toString());
-          _store.markAsSent(guest.id);
+          _store.markAsSent(guest.id, sentMessage: customMessage);
         },
-        onMarkSentOnly: (guest) => _store.markAsSent(guest.id),
+        onMarkSentOnly: (guest, customMessage) =>
+            _store.markAsSent(guest.id, sentMessage: customMessage),
       ),
     );
   }
@@ -236,6 +287,7 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
                             _store.buildMessageForGuest(g),
                             'Pesan WA ${g.name} disalin!',
                           ),
+                          onViewMessage: _openGuestMessagePopup,
                           onEditGuest: _openEditGuestDialog,
                           onOpenBulkImport: _openBulkImportDialog,
                           onStartQueue: _openGuidedQueueDialog,
@@ -256,6 +308,7 @@ class _InvitationDashboardScreenState() extends State<InvitationDashboardScreen>
                             _store.buildMessageForGuest(g),
                             'Pesan WA ${g.name} disalin!',
                           ),
+                          onViewMessage: _openGuestMessagePopup,
                           onEditGuest: _openEditGuestDialog,
                           onOpenBulkImport: _openBulkImportDialog,
                           onStartQueue: _openGuidedQueueDialog,
@@ -420,7 +473,7 @@ class const _DashboardHeader({
                         alignment: .topCenter,
                         child: expanded
                             ? Padding(
-                                padding: const .only(top: 10),
+                                padding: const .only(top: 10, bottom: 6),
                                 child: Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
@@ -469,6 +522,7 @@ class const _DesktopDashboardBody({
   required final ValueChanged<GuestInvitation> onSendGuest,
   required final ValueChanged<GuestInvitation> onCopyLink,
   required final ValueChanged<GuestInvitation> onCopyMessage,
+  required final ValueChanged<GuestInvitation> onViewMessage,
   required final ValueChanged<GuestInvitation> onEditGuest,
   required final VoidCallback onOpenBulkImport,
   required final VoidCallback onStartQueue,
@@ -505,6 +559,7 @@ class const _DesktopDashboardBody({
             onSendGuest: onSendGuest,
             onCopyLink: onCopyLink,
             onCopyMessage: onCopyMessage,
+            onViewMessage: onViewMessage,
             onEditGuest: onEditGuest,
             onOpenBulkImport: onOpenBulkImport,
             onStartQueue: onStartQueue,
@@ -526,6 +581,7 @@ class const _MobileDashboardBody({
   required final ValueChanged<GuestInvitation> onSendGuest,
   required final ValueChanged<GuestInvitation> onCopyLink,
   required final ValueChanged<GuestInvitation> onCopyMessage,
+  required final ValueChanged<GuestInvitation> onViewMessage,
   required final ValueChanged<GuestInvitation> onEditGuest,
   required final VoidCallback onOpenBulkImport,
   required final VoidCallback onStartQueue,
@@ -571,6 +627,7 @@ class const _MobileDashboardBody({
                       onSendGuest: onSendGuest,
                       onCopyLink: onCopyLink,
                       onCopyMessage: onCopyMessage,
+                      onViewMessage: onViewMessage,
                       onEditGuest: onEditGuest,
                       onOpenBulkImport: onOpenBulkImport,
                       onStartQueue: onStartQueue,
@@ -645,6 +702,7 @@ class const _GuestWorkspaceSliverScroll({
   required final ValueChanged<GuestInvitation> onSendGuest,
   required final ValueChanged<GuestInvitation> onCopyLink,
   required final ValueChanged<GuestInvitation> onCopyMessage,
+  required final ValueChanged<GuestInvitation> onViewMessage,
   required final ValueChanged<GuestInvitation> onEditGuest,
   required final VoidCallback onOpenBulkImport,
   required final VoidCallback onStartQueue,
@@ -726,6 +784,7 @@ class const _GuestWorkspaceSliverScroll({
                     onSendWhatsApp: () => onSendGuest(guest),
                     onCopyLink: () => onCopyLink(guest),
                     onCopyMessage: () => onCopyMessage(guest),
+                    onViewMessage: () => onViewMessage(guest),
                     onEdit: () => onEditGuest(guest),
                     onToggleStatus: () {
                       if (guest.sendStatus == .sent) {
@@ -1236,6 +1295,7 @@ class const _GuestCard({
   required final VoidCallback onSendWhatsApp,
   required final VoidCallback onCopyLink,
   required final VoidCallback onCopyMessage,
+  required final VoidCallback onViewMessage,
   required final VoidCallback onEdit,
   required final VoidCallback onToggleStatus,
   required final VoidCallback onDelete,
@@ -1323,6 +1383,13 @@ class const _GuestCard({
                                 ? _DashboardPalette.whatsappGreen
                                 : _DashboardPalette.amber,
                           ),
+                          if (guest.hasCustomMessage)
+                            const _MiniTag(
+                              label: 'Pesan Khusus',
+                              fg: _DashboardPalette.sky,
+                              bg: _DashboardPalette.skyDark,
+                              border: _DashboardPalette.sky,
+                            ),
                           if (rsvpSnapshot != null) _RsvpStatusBadge(snapshot: rsvpSnapshot!),
                         ],
                       ),
@@ -1360,6 +1427,8 @@ class const _GuestCard({
                   icon: const Icon(Icons.more_vert_rounded, size: 18, color: Colors.white60),
                   onSelected: (value) {
                     switch (value) {
+                      case 'message':
+                        onViewMessage();
                       case 'edit':
                         onEdit();
                       case 'toggle_status':
@@ -1369,6 +1438,10 @@ class const _GuestCard({
                     }
                   },
                   itemBuilder: (_) => [
+                    PopupMenuItem<String>(
+                      value: 'message',
+                      child: Text('Lihat Isi Pesan', style: GothicTheme.sans(size: 12)),
+                    ),
                     PopupMenuItem<String>(
                       value: 'edit',
                       child: Text('Edit Data Tamu', style: GothicTheme.sans(size: 12)),
@@ -1645,7 +1718,9 @@ class _TemplateEditorCardState() extends State<_TemplateEditorCard> {
             sentCount: 0,
             createdAt: DateTime(2026, 11, 15),
           );
-    final previewText = widget.store.buildMessageForGuest(sampleGuest);
+    final previewText = widget.store.renderActiveTemplateForGuest(sampleGuest);
+    final templatePresets = widget.store.availableTemplatePresets;
+    final trimmedTemplate = widget.store.templateText.trim();
 
     return DecoratedBox(
       decoration: _decoration,
@@ -1671,10 +1746,12 @@ class _TemplateEditorCardState() extends State<_TemplateEditorCard> {
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (final preset in WhatsAppInvitationHelper.presets)
+                for (final preset in templatePresets)
                   _FilterPill(
                     label: preset.name,
-                    selected: widget.store.activePresetId == preset.id,
+                    selected:
+                        widget.store.activePresetId == preset.id ||
+                        trimmedTemplate == preset.body.trim(),
                     onTap: () {
                       widget.store.selectPreset(preset);
                       _templateController.text = preset.body;
@@ -1747,14 +1824,14 @@ class const _DashboardTextField({
       keyboardType: keyboardType,
       style: GothicTheme.sans(size: 12.5),
       decoration: InputDecoration(
-        isDense: true,
+        // isDense: true,
         labelText: label,
         hintText: hint,
         labelStyle: GothicTheme.sans(size: 11.5, color: GothicTheme.textGrey),
         hintStyle: GothicTheme.sans(size: 11.5, color: Colors.white38),
         filled: true,
         fillColor: _DashboardPalette.surfaceInput,
-        contentPadding: const .symmetric(horizontal: 12, vertical: 11),
+        contentPadding: const .symmetric(horizontal: 12, vertical: 10),
         enabledBorder: const OutlineInputBorder(
           borderRadius: .all(.circular(10)),
           borderSide: BorderSide(color: _DashboardPalette.border),
@@ -1769,8 +1846,340 @@ class const _DashboardTextField({
 }
 
 // ============================================================================
-// DIALOGS: TAMBAH/EDIT TAMU, IMPOR CSV/JSON, EKSPOR CSV/JSON, ANTREAN WA
+// DIALOGS / BOTTOMSHEETS: TAMBAH/EDIT TAMU, ISI PESAN, IMPOR/EKSPOR, ANTREAN WA
 // ============================================================================
+class const _AdaptivePopupScaffold({
+  required final Widget title,
+  required final Widget content,
+  required final List<Widget> actions,
+  final double desktopWidth = 420,
+  final double? fixedContentHeight,
+  final bool scrollableContent = true,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = _InvitationDashboardScreenState._isMobileViewport(context);
+    if (!isMobile) {
+      return AlertDialog(
+        backgroundColor: _DashboardPalette.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: .all(.circular(16)),
+          side: BorderSide(color: _DashboardPalette.borderStrong),
+        ),
+        title: title,
+        content: SizedBox(
+          width: desktopWidth,
+          height: fixedContentHeight,
+          child: scrollableContent ? SingleChildScrollView(child: content) : content,
+        ),
+        actions: actions,
+      );
+    }
+
+    final viewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
+    final maxSheetHeight = MediaQuery.sizeOf(context).height * 0.90;
+
+    return Padding(
+      padding: .only(bottom: viewInsetsBottom),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxSheetHeight),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: _DashboardPalette.surface,
+            borderRadius: .vertical(top: .circular(20)),
+            border: Border(top: BorderSide(color: _DashboardPalette.borderStrong)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const .fromLTRB(16, 10, 16, 16),
+              child: Column(
+                mainAxisSize: .min,
+                crossAxisAlignment: .stretch,
+                children: [
+                  const Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: .all(.circular(2)),
+                      ),
+                      child: SizedBox(width: 36, height: 4),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  title,
+                  const SizedBox(height: 14),
+                  if (scrollableContent)
+                    Flexible(child: SingleChildScrollView(child: content))
+                  else
+                    Flexible(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: fixedContentHeight ?? 360),
+                        child: content,
+                      ),
+                    ),
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: .end,
+                      crossAxisAlignment: .center,
+                      children: actions,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class const _GuestMessageDialog({
+  required final GuestInvitation guest,
+  required final GuestDashboardStore store,
+  required final ValueChanged<String> onShowMessage,
+  required final ValueChanged<String> onCopyMessage,
+  required final ValueChanged<String> onSendMessage,
+}) extends StatefulWidget {
+  @override
+  State<_GuestMessageDialog> createState() => _GuestMessageDialogState();
+}
+
+class _GuestMessageDialogState() extends State<_GuestMessageDialog> {
+  late final TextEditingController _messageController;
+  late final ValueNotifier<bool> _isCustomSaved;
+
+  @override
+  void initState() {
+    super.initState();
+    _messageController = TextEditingController(
+      text: widget.store.buildMessageForGuest(widget.guest),
+    );
+    _isCustomSaved = ValueNotifier<bool>(widget.guest.hasCustomMessage);
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _isCustomSaved.dispose();
+    super.dispose();
+  }
+
+  void _resetToTemplate() {
+    widget.store.clearGuestCustomMessage(widget.guest.id);
+    _messageController.text = widget.store.renderActiveTemplateForGuest(widget.guest);
+    _isCustomSaved.value = false;
+    widget.onShowMessage('Pesan ${widget.guest.name} dikembalikan ke template aktif.');
+  }
+
+  void _saveMessage() {
+    final trimmed = _messageController.text.trim();
+    if (trimmed.isEmpty) {
+      widget.onShowMessage('Isi pesan tidak boleh kosong.');
+      return;
+    }
+    widget.store.updateGuestMessage(widget.guest.id, trimmed);
+    Navigator.of(context).pop();
+    widget.onShowMessage('Isi pesan untuk ${widget.guest.name} disimpan.');
+  }
+
+  void _sendMessage() {
+    final trimmed = _messageController.text.trim();
+    if (trimmed.isEmpty) {
+      widget.onShowMessage('Isi pesan tidak boleh kosong.');
+      return;
+    }
+    widget.onSendMessage(_messageController.text);
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final guest = widget.guest;
+    final link = widget.store.buildLinkForGuest(guest);
+
+    return _AdaptivePopupScaffold(
+      desktopWidth: 500,
+      title: Row(
+        children: [
+          const Icon(
+            Icons.chat_bubble_outline_rounded,
+            color: _DashboardPalette.whatsappGreen,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('Isi Pesan Undangan', style: GothicTheme.sans(size: 15, weight: .bold)),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          DecoratedBox(
+            decoration: const BoxDecoration(
+              color: _DashboardPalette.surfaceElevated,
+              borderRadius: .all(.circular(12)),
+              border: Border.fromBorderSide(BorderSide(color: _DashboardPalette.border)),
+            ),
+            child: Padding(
+              padding: const .all(12),
+              child: Column(
+                crossAxisAlignment: .start,
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: .center,
+                    children: [
+                      Text(guest.name, style: GothicTheme.sans(size: 14, weight: .bold)),
+                      _MiniTag(
+                        label: guest.category,
+                        fg: GothicTheme.textGrey,
+                        bg: _DashboardPalette.surfaceInput,
+                        border: _DashboardPalette.border,
+                      ),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _isCustomSaved,
+                        builder: (context, isCustom, _) {
+                          if (!isCustom) return const SizedBox.shrink();
+                          return const _MiniTag(
+                            label: 'Pesan Khusus',
+                            fg: _DashboardPalette.sky,
+                            bg: _DashboardPalette.skyDark,
+                            border: _DashboardPalette.sky,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    guest.hasPhone
+                        ? WhatsAppInvitationHelper.formatPhoneDisplay(guest.phone)
+                        : 'Tanpa No. WA (Pilih Kontak Manual di WA)',
+                    style: GothicTheme.sans(
+                      size: 11.5,
+                      color: guest.hasPhone ? Colors.white70 : _DashboardPalette.amber,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(link, style: GothicTheme.sans(size: 11, color: Colors.white54)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Isi Pesan WhatsApp (bisa dilihat atau diedit khusus untuk tamu ini):',
+            style: GothicTheme.sans(size: 11, color: Colors.white60),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _messageController,
+            maxLines: 10,
+            minLines: 6,
+            style: GothicTheme.sans(size: 12, height: 1.4),
+            decoration: const InputDecoration(
+              filled: true,
+              fillColor: _DashboardPalette.surfaceInput,
+              contentPadding: .all(12),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: .all(.circular(10)),
+                borderSide: BorderSide(color: _DashboardPalette.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: .all(.circular(10)),
+                borderSide: BorderSide(color: GothicTheme.white, width: 1.2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Pesan yang berbeda dari 3 template bawaan akan otomatis muncul di pilihan Template Pesan.',
+            style: GothicTheme.sans(size: 10.5, color: Colors.white54),
+          ),
+          const SizedBox(height: 28),
+          Row(
+            mainAxisAlignment: .end,
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: _isCustomSaved,
+                builder: (context, isCustom, _) {
+                  if (!isCustom) return const SizedBox.shrink();
+                  return Row(
+                    children: [
+                      TextButton(
+                        onPressed: _resetToTemplate,
+                        child: Text(
+                          'Reset Template',
+                          style: GothicTheme.sans(
+                            size: 12,
+                            color: _DashboardPalette.amber,
+                            weight: .w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                  );
+                },
+              ),
+              OutlinedButton.icon(
+                onPressed: () => widget.onCopyMessage(_messageController.text),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GothicTheme.white,
+                  side: const BorderSide(color: _DashboardPalette.borderStrong),
+                ),
+                icon: const Icon(Icons.copy_rounded, size: 14),
+                label: Text('Salin', style: GothicTheme.sans(size: 12, weight: .w600)),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: _saveMessage,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GothicTheme.white,
+                  side: const BorderSide(color: _DashboardPalette.borderStrong),
+                ),
+                child: Text('Simpan Pesan', style: GothicTheme.sans(size: 12, weight: .bold)),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        Padding(
+          padding: const .only(bottom: 20),
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Tutup', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+          ),
+        ),
+        Padding(
+          padding: const .only(bottom: 20),
+          child: ElevatedButton.icon(
+            onPressed: _sendMessage,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _DashboardPalette.whatsappGreen,
+              foregroundColor: GothicTheme.bgBlack,
+            ),
+            icon: const Icon(Icons.send_rounded, size: 15),
+            label: Text(
+              'Kirim WA',
+              style: GothicTheme.sans(size: 12, color: GothicTheme.bgBlack, weight: .bold),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class const _GuestFormDialog({
   required final String title,
   required final String submitLabel,
@@ -1798,6 +2207,7 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
   late final ValueNotifier<String> _category;
   final ValueNotifier<String?> _errorText = ValueNotifier<String?>(null);
   final ValueNotifier<bool> _isPickingContact = ValueNotifier<bool>(false);
+  String? _lastPickedContactName;
 
   @override
   void initState() {
@@ -1861,27 +2271,38 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
         return;
       case .unsupported:
         if (!allowFallbackDialog) {
-          _errorText.value =
-              'Pemilih kontak tidak didukung di browser ini. Anda bisa input manual atau kosongkan untuk pilih dari WhatsApp nanti.';
+          _errorText.value = 'Pemilih kontak tidak didukung di browser ini. Anda bisa input manual atau kosongkan untuk pilih dari WhatsApp nanti.';
           return;
         }
-        final wantsVcf = await showDialog<bool>(
+        final wantsVcf = await _InvitationDashboardScreenState._showAdaptivePopup<bool>(
           context: context,
           builder: (ctx) => const _ContactPickerFallbackDialog(),
         );
         if (!mounted || wantsVcf != true) return;
         await _handlePickContactFromVcf();
       case .failed:
-        _errorText.value = allowFallbackDialog
-            ? 'Gagal membaca kontak perangkat. Anda bisa ketik manual atau kosongkan untuk pilih dari WhatsApp nanti.'
-            : 'File kontak (.vcf) tidak berisi data kontak atau nomor telepon yang valid.';
+        if (!allowFallbackDialog) {
+          _errorText.value =
+              'File kontak (.vcf) tidak berisi data kontak atau nomor telepon yang valid.';
+          return;
+        }
+        final wantsVcf = await _InvitationDashboardScreenState._showAdaptivePopup<bool>(
+          context: context,
+          builder: (ctx) => const _ContactPickerFallbackDialog(failedToOpen: true),
+        );
+        if (!mounted) return;
+        if (wantsVcf == true) {
+          await _handlePickContactFromVcf();
+          return;
+        }
+        _errorText.value = 'Gagal membuka kontak perangkat di browser ini. Coba browser Chrome Android, impor file .vcf, atau ketik manual.';
       case .picked:
         if (result.contacts.isEmpty) return;
         if (result.contacts.length == 1) {
           await _applySingleContact(result.contacts.first);
           return;
         }
-        final chosen = await showDialog<ContactCandidate>(
+        final chosen = await _InvitationDashboardScreenState._showAdaptivePopup<ContactCandidate>(
           context: context,
           builder: (ctx) => _SelectContactDialog(contacts: result.contacts),
         );
@@ -1890,25 +2311,37 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
     }
   }
 
-  Future<void> _applySingleContact(ContactCandidate contact) async {
-    if (_nameController.text.trim().isEmpty && contact.name.trim().isNotEmpty) {
-      _nameController.text = contact.name.trim();
+  void _applyPickedContactName(String rawContactName) {
+    final pickedName = rawContactName.trim();
+    if (pickedName.isEmpty) return;
+    final currentName = _nameController.text.trim();
+    final isReplacedFromPreviousPick =
+        _lastPickedContactName != null && currentName == _lastPickedContactName;
+    if (currentName.isEmpty || isReplacedFromPreviousPick) {
+      _nameController.text = pickedName;
+      _lastPickedContactName = pickedName;
     }
+  }
+
+  Future<void> _applySingleContact(ContactCandidate contact) async {
     if (contact.phones.isEmpty) {
+      _applyPickedContactName(contact.name);
       _errorText.value = contact.name.isNotEmpty
           ? 'Kontak "${contact.name}" tidak memiliki nomor telepon yang valid. Kosongkan saja agar bisa pilih di WhatsApp nanti.'
           : 'Kontak yang dipilih tidak memiliki nomor telepon yang valid.';
       return;
     }
     if (contact.phones.length == 1) {
+      _applyPickedContactName(contact.name);
       _fillContactPhone(contact.phones.first);
       return;
     }
-    final selectedPhone = await showDialog<String>(
+    final selectedPhone = await _InvitationDashboardScreenState._showAdaptivePopup<String>(
       context: context,
       builder: (ctx) => _SelectContactPhoneDialog(contact: contact),
     );
     if (!mounted || selectedPhone == null || selectedPhone.isEmpty) return;
+    _applyPickedContactName(contact.name);
     _fillContactPhone(selectedPhone);
   }
 
@@ -1933,103 +2366,101 @@ class _GuestFormDialogState() extends State<_GuestFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 420,
       title: Text(widget.title, style: GothicTheme.sans(size: 15, weight: .bold)),
-      content: SizedBox(
-        width: 420,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: .min,
-            crossAxisAlignment: .stretch,
-            children: [
-              _DashboardTextField(
-                controller: _nameController,
-                label: 'Nama Tamu *',
-                hint: 'Misal: Budi Santoso',
-              ),
-              const SizedBox(height: 10),
-              _DashboardTextField(
-                controller: _phoneController,
-                label: 'Nomor WhatsApp (Opsional)',
-                hint: '08123456789',
-                keyboardType: .phone,
-              ),
-              const SizedBox(height: 8),
-              ValueListenableBuilder<bool>(
-                valueListenable: _isPickingContact,
-                builder: (context, isPicking, _) => Align(
-                  alignment: .centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: isPicking ? null : _handlePickContact,
-                    style: _contactPickButtonStyle,
-                    icon: const Icon(Icons.contacts_rounded, size: 16),
-                    label: Text(
-                      isPicking ? 'Membuka Kontak...' : 'Pilih dari Kontak',
-                      style: GothicTheme.sans(
-                        size: 12,
-                        color: _DashboardPalette.whatsappGreen,
-                        weight: .bold,
-                      ),
-                    ),
+      content: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          _DashboardTextField(
+            controller: _nameController,
+            label: 'Nama Tamu *',
+            hint: 'Misal: Budi Santoso',
+          ),
+          const SizedBox(height: 10),
+          _DashboardTextField(
+            controller: _phoneController,
+            label: 'Nomor WhatsApp (Opsional)',
+            hint: '08123456789',
+            keyboardType: .phone,
+          ),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<bool>(
+            valueListenable: _isPickingContact,
+            builder: (context, isPicking, _) => Align(
+              alignment: .centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: isPicking ? null : _handlePickContact,
+                style: _contactPickButtonStyle,
+                icon: const Icon(Icons.contacts_rounded, size: 16),
+                label: Text(
+                  isPicking ? 'Membuka Kontak...' : 'Pilih dari Kontak',
+                  style: GothicTheme.sans(
+                    size: 12,
+                    color: _DashboardPalette.whatsappGreen,
+                    weight: .bold,
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              const _OptionalPhoneInfoBox(),
-              const SizedBox(height: 10),
-              Text('Kategori', style: GothicTheme.sans(size: 11, color: Colors.white60)),
-              const SizedBox(height: 6),
-              ValueListenableBuilder<String>(
-                valueListenable: _category,
-                builder: (context, selected, _) => Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final cat in WhatsAppInvitationHelper.defaultCategories)
-                      _FilterPill(
-                        label: cat,
-                        selected: selected == cat,
-                        onTap: () => _category.value = cat,
-                      ),
-                  ],
-                ),
-              ),
-              ValueListenableBuilder<String?>(
-                valueListenable: _errorText,
-                builder: (context, err, _) {
-                  if (err == null) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const .only(top: 8),
-                    child: Text(
-                      err,
-                      style: GothicTheme.sans(size: 11.5, color: _DashboardPalette.rose),
-                    ),
-                  );
-                },
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(height: 8),
+          const _OptionalPhoneInfoBox(),
+          const SizedBox(height: 10),
+          Text('Kategori', style: GothicTheme.sans(size: 11, color: Colors.white60)),
+          const SizedBox(height: 6),
+          ValueListenableBuilder<String>(
+            valueListenable: _category,
+            builder: (context, selected, _) => Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final cat in WhatsAppInvitationHelper.defaultCategories)
+                  _FilterPill(
+                    label: cat,
+                    selected: selected == cat,
+                    onTap: () => _category.value = cat,
+                  ),
+              ],
+            ),
+          ),
+          ValueListenableBuilder<String?>(
+            valueListenable: _errorText,
+            builder: (context, err, _) {
+              if (err == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const .only(top: 8),
+                child: Text(
+                  err,
+                  style: GothicTheme.sans(size: 11.5, color: _DashboardPalette.rose),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 28),
+        ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Batal', style: GothicTheme.sans(size: 12, color: Colors.white60)),
-        ),
-        ElevatedButton(
-          onPressed: _submit,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: GothicTheme.white,
-            foregroundColor: GothicTheme.bgBlack,
+        Padding(
+          padding: const .only(bottom: 20),
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Batal', style: GothicTheme.sans(size: 12, color: Colors.white60)),
           ),
-          child: Text(
-            widget.submitLabel,
-            style: GothicTheme.sans(size: 12, color: GothicTheme.bgBlack, weight: .bold),
+        ),
+        Padding(
+          padding: const .only(bottom: 20),
+          child: ElevatedButton(
+            onPressed: _submit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: GothicTheme.white,
+              foregroundColor: GothicTheme.bgBlack,
+            ),
+            child: Text(
+              widget.submitLabel,
+              style: GothicTheme.sans(size: 12, color: GothicTheme.bgBlack, weight: .bold),
+            ),
           ),
         ),
       ],
@@ -2071,36 +2502,34 @@ class const _OptionalPhoneInfoBox() extends StatelessWidget {
   }
 }
 
-class const _ContactPickerFallbackDialog() extends StatelessWidget {
+class const _ContactPickerFallbackDialog({final bool failedToOpen = false})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 400,
       title: Text('Pilih Kontak', style: GothicTheme.sans(size: 15, weight: .bold)),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: .min,
-          crossAxisAlignment: .stretch,
-          children: [
-            Text(
-              'Akses daftar kontak langsung hanya didukung di browser HP Android '
-              '(Chrome, Edge, atau Samsung Internet).',
-              style: GothicTheme.sans(size: 12, color: Colors.white70),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Sebagai alternatif, Anda bisa memilih file kontak (.vcf / vCard) dari perangkat '
-              'atau mengosongkan kolom nomor WA — karena nomor tidak wajib diisi dan kontak bisa '
-              'dipilih langsung dari WhatsApp saat mengirim nanti.',
-              style: GothicTheme.sans(size: 12, color: Colors.white70),
-            ),
-          ],
-        ),
+      content: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          Text(
+            failedToOpen
+                ? 'Browser ini belum berhasil membuka pemilih kontak perangkat secara langsung '
+                      '(umumnya terjadi di Opera, browser desktop/iOS, atau saat izin kontak ditolak). '
+                      'Untuk akses kontak langsung, gunakan Chrome atau Samsung Internet di HP Android.'
+                : 'Akses daftar kontak langsung hanya didukung di browser HP Android '
+                      '(Chrome atau Samsung Internet).',
+            style: GothicTheme.sans(size: 12, color: Colors.white70),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Sebagai alternatif, Anda bisa memilih file kontak (.vcf / vCard) dari perangkat '
+            'atau mengosongkan kolom nomor WA — karena nomor tidak wajib diisi dan kontak bisa '
+            'dipilih langsung dari WhatsApp saat mengirim nanti.',
+            style: GothicTheme.sans(size: 12, color: Colors.white70),
+          ),
+        ],
       ),
       actions: [
         TextButton(
@@ -2131,42 +2560,35 @@ class const _SelectContactPhoneDialog({required final ContactCandidate contact})
     final title = contact.name.isNotEmpty
         ? 'Pilih Nomor untuk ${contact.name}'
         : 'Pilih Nomor WhatsApp';
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 380,
       title: Text(title, style: GothicTheme.sans(size: 15, weight: .bold)),
-      content: SizedBox(
-        width: 380,
-        child: Column(
-          mainAxisSize: .min,
-          crossAxisAlignment: .stretch,
-          children: [
-            for (var i = 0; i < contact.phones.length; i++) ...[
-              if (i > 0) const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).pop(contact.phones[i]),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: GothicTheme.white,
-                  side: const BorderSide(color: _DashboardPalette.borderStrong),
-                  alignment: .centerLeft,
-                  padding: const .symmetric(horizontal: 12, vertical: 12),
-                ),
-                icon: const Icon(
-                  Icons.phone_android_rounded,
-                  size: 16,
-                  color: _DashboardPalette.whatsappGreen,
-                ),
-                label: Text(
-                  WhatsAppInvitationHelper.formatPhoneDisplay(contact.phones[i]),
-                  style: GothicTheme.sans(size: 12.5, weight: .w600),
-                ),
+      content: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          for (var i = 0; i < contact.phones.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).pop(contact.phones[i]),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: GothicTheme.white,
+                side: const BorderSide(color: _DashboardPalette.borderStrong),
+                alignment: .centerLeft,
+                padding: const .symmetric(horizontal: 12, vertical: 12),
               ),
-            ],
+              icon: const Icon(
+                Icons.phone_android_rounded,
+                size: 16,
+                color: _DashboardPalette.whatsappGreen,
+              ),
+              label: Text(
+                WhatsAppInvitationHelper.formatPhoneDisplay(contact.phones[i]),
+                style: GothicTheme.sans(size: 12.5, weight: .w600),
+              ),
+            ),
           ],
-        ),
+        ],
       ),
       actions: [
         TextButton(
@@ -2195,106 +2617,100 @@ class _SelectContactDialogState() extends State<_SelectContactDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 400,
+      fixedContentHeight: 360,
+      scrollableContent: false,
       title: Text(
         'Pilih Kontak (${widget.contacts.length})',
         style: GothicTheme.sans(size: 15, weight: .bold),
       ),
-      content: SizedBox(
-        width: 400,
-        height: 360,
-        child: Column(
-          crossAxisAlignment: .stretch,
-          children: [
-            _DashboardTextField(
-              controller: _searchController,
-              label: 'Cari Kontak',
-              hint: 'Ketik nama atau nomor...',
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: ListenableBuilder(
-                listenable: _searchController,
-                builder: (context, _) {
-                  final q = _searchController.text.trim().toLowerCase();
-                  final filtered = [
-                    for (final c in widget.contacts)
-                      if (q.isEmpty ||
-                          c.name.toLowerCase().contains(q) ||
-                          c.phones.any((p) => p.contains(q)))
-                        c,
-                  ];
-                  if (filtered.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'Tidak ada kontak yang cocok.',
-                        style: GothicTheme.sans(size: 12, color: Colors.white54),
-                      ),
-                    );
-                  }
-                  return ListView.builder(
-                    itemCount: filtered.length,
-                    itemExtent: 64,
-                    itemBuilder: (context, index) {
-                      final contact = filtered[index];
-                      final subtitle = contact.phones.isNotEmpty
-                          ? contact.phones.map(WhatsAppInvitationHelper.formatPhoneDisplay).join(', ')
-                          : 'Tanpa nomor telepon';
-                      return Padding(
-                        padding: const .only(bottom: 6),
-                        child: InkWell(
-                          onTap: () => Navigator.of(context).pop(contact),
-                          borderRadius: const .all(.circular(10)),
-                          child: DecoratedBox(
-                            decoration: const BoxDecoration(
-                              color: _DashboardPalette.surfaceElevated,
-                              borderRadius: .all(.circular(10)),
-                              border: Border.fromBorderSide(
-                                BorderSide(color: _DashboardPalette.border),
-                              ),
+      content: Column(
+        crossAxisAlignment: .stretch,
+        children: [
+          _DashboardTextField(
+            controller: _searchController,
+            label: 'Cari Kontak',
+            hint: 'Ketik nama atau nomor...',
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: ListenableBuilder(
+              listenable: _searchController,
+              builder: (context, _) {
+                final q = _searchController.text.trim().toLowerCase();
+                final filtered = [
+                  for (final c in widget.contacts)
+                    if (q.isEmpty ||
+                        c.name.toLowerCase().contains(q) ||
+                        c.phones.any((p) => p.contains(q)))
+                      c,
+                ];
+                if (filtered.isEmpty) {
+                  return Center(
+                    child: Text(
+                      'Tidak ada kontak yang cocok.',
+                      style: GothicTheme.sans(size: 12, color: Colors.white54),
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  itemCount: filtered.length,
+                  itemExtent: 64,
+                  itemBuilder: (context, index) {
+                    final contact = filtered[index];
+                    final subtitle = contact.phones.isNotEmpty
+                        ? contact.phones.map(WhatsAppInvitationHelper.formatPhoneDisplay).join(', ')
+                        : 'Tanpa nomor telepon';
+                    return Padding(
+                      padding: const .only(bottom: 6),
+                      child: InkWell(
+                        onTap: () => Navigator.of(context).pop(contact),
+                        borderRadius: const .all(.circular(10)),
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(
+                            color: _DashboardPalette.surfaceElevated,
+                            borderRadius: .all(.circular(10)),
+                            border: Border.fromBorderSide(
+                              BorderSide(color: _DashboardPalette.border),
                             ),
-                            child: Padding(
-                              padding: const .symmetric(horizontal: 12, vertical: 8),
-                              child: Column(
-                                mainAxisAlignment: .center,
-                                crossAxisAlignment: .start,
-                                children: [
-                                  Text(
-                                    contact.name.isNotEmpty ? contact.name : 'Tanpa Nama',
-                                    maxLines: 1,
-                                    overflow: .ellipsis,
-                                    style: GothicTheme.sans(size: 12.5, weight: .bold),
+                          ),
+                          child: Padding(
+                            padding: const .symmetric(horizontal: 12, vertical: 8),
+                            child: Column(
+                              mainAxisAlignment: .center,
+                              crossAxisAlignment: .start,
+                              children: [
+                                Text(
+                                  contact.name.isNotEmpty ? contact.name : 'Tanpa Nama',
+                                  maxLines: 1,
+                                  overflow: .ellipsis,
+                                  style: GothicTheme.sans(size: 12.5, weight: .bold),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: .ellipsis,
+                                  style: GothicTheme.sans(
+                                    size: 11.5,
+                                    color: contact.phones.isNotEmpty
+                                        ? Colors.white70
+                                        : _DashboardPalette.amber,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    subtitle,
-                                    maxLines: 1,
-                                    overflow: .ellipsis,
-                                    style: GothicTheme.sans(
-                                      size: 11.5,
-                                      color: contact.phones.isNotEmpty
-                                          ? Colors.white70
-                                          : _DashboardPalette.amber,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      );
-                    },
-                  );
-                },
-              ),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       actions: [
         TextButton(
@@ -2400,198 +2816,195 @@ class _BulkImportDialogState() extends State<_BulkImportDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 520,
       title: Text(
         'Impor Daftar Tamu (CSV / JSON)',
         style: GothicTheme.sans(size: 15, weight: .bold),
       ),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: .min,
-            crossAxisAlignment: .stretch,
-            children: [
-              Text(
-                'Tempel data berformat CSV atau JSON, atau pilih file .csv / .json.\n'
-                'Format CSV per baris: Nama Tamu, Nomor WA (opsional), Kategori — '
-                'jika nomor kosong, nanti bisa pilih kontak dari WhatsApp.',
-                style: GothicTheme.sans(size: 11.5, color: Colors.white70),
-              ),
-              const SizedBox(height: 10),
-              if (kIsWeb) ...[
-                Align(
-                  alignment: .centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: _pickFile,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: GothicTheme.white,
-                      side: const BorderSide(color: _DashboardPalette.borderStrong),
-                    ),
-                    icon: const Icon(Icons.upload_file_rounded, size: 16),
-                    label: Text(
-                      'Pilih File (.csv / .json)',
-                      style: GothicTheme.sans(size: 12, weight: .w600),
-                    ),
-                  ),
+      content: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          Text(
+            'Tempel data berformat CSV atau JSON, atau pilih file .csv / .json.\n'
+            'Format CSV per baris: Nama Tamu, Nomor WA (opsional), Kategori — '
+            'jika nomor kosong, nanti bisa pilih kontak dari WhatsApp.',
+            style: GothicTheme.sans(size: 11.5, color: Colors.white70),
+          ),
+          const SizedBox(height: 10),
+          if (kIsWeb) ...[
+            Align(
+              alignment: .centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _pickFile,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: GothicTheme.white,
+                  side: const BorderSide(color: _DashboardPalette.borderStrong),
                 ),
-                const SizedBox(height: 10),
+                icon: const Icon(Icons.upload_file_rounded, size: 16),
+                label: Text(
+                  'Pilih File (.csv / .json)',
+                  style: GothicTheme.sans(size: 12, weight: .w600),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          TextField(
+            controller: _textController,
+            maxLines: 8,
+            minLines: 5,
+            onChanged: (_) => _reparse(),
+            style: GothicTheme.sans(size: 12),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: _DashboardPalette.surfaceInput,
+              hintText:
+                  'Contoh CSV:\n'
+                  'Budi Santoso, 081234567890, Teman\n'
+                  'Keluarga Bapak Ahmad, 085698765432, Keluarga\n'
+                  'Rina & Partner',
+              hintStyle: GothicTheme.sans(size: 11.5, color: Colors.white38),
+              contentPadding: const .all(12),
+              enabledBorder: const OutlineInputBorder(
+                borderRadius: .all(.circular(10)),
+                borderSide: BorderSide(color: _DashboardPalette.border),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderRadius: .all(.circular(10)),
+                borderSide: BorderSide(color: GothicTheme.white, width: 1.2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Kategori Default (jika kolom kategori CSV kosong)',
+            style: GothicTheme.sans(size: 11, color: Colors.white60),
+          ),
+          const SizedBox(height: 6),
+          ValueListenableBuilder<String>(
+            valueListenable: _defaultCategory,
+            builder: (context, selected, _) => Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final cat in WhatsAppInvitationHelper.defaultCategories)
+                  _FilterPill(
+                    label: cat,
+                    selected: selected == cat,
+                    onTap: () {
+                      _defaultCategory.value = cat;
+                      _reparse();
+                    },
+                  ),
               ],
-              TextField(
-                controller: _textController,
-                maxLines: 8,
-                minLines: 5,
-                onChanged: (_) => _reparse(),
-                style: GothicTheme.sans(size: 12),
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: _DashboardPalette.surfaceInput,
-                  hintText:
-                      'Contoh CSV:\n'
-                      'Budi Santoso, 081234567890, Teman\n'
-                      'Keluarga Bapak Ahmad, 085698765432, Keluarga\n'
-                      'Rina & Partner',
-                  hintStyle: GothicTheme.sans(size: 11.5, color: Colors.white38),
-                  contentPadding: const .all(12),
-                  enabledBorder: const OutlineInputBorder(
-                    borderRadius: .all(.circular(10)),
-                    borderSide: BorderSide(color: _DashboardPalette.border),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderRadius: .all(.circular(10)),
-                    borderSide: BorderSide(color: GothicTheme.white, width: 1.2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Kategori Default (jika kolom kategori CSV kosong)',
-                style: GothicTheme.sans(size: 11, color: Colors.white60),
-              ),
-              const SizedBox(height: 6),
-              ValueListenableBuilder<String>(
-                valueListenable: _defaultCategory,
-                builder: (context, selected, _) => Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<bool>(
+            valueListenable: _skipDuplicates,
+            builder: (context, skip, _) => InkWell(
+              onTap: () => _skipDuplicates.value = !skip,
+              child: Padding(
+                padding: const .symmetric(vertical: 4),
+                child: Row(
                   children: [
-                    for (final cat in WhatsAppInvitationHelper.defaultCategories)
-                      _FilterPill(
-                        label: cat,
-                        selected: selected == cat,
-                        onTap: () {
-                          _defaultCategory.value = cat;
-                          _reparse();
-                        },
+                    Icon(
+                      skip ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
+                      size: 18,
+                      color: skip ? _DashboardPalette.whatsappGreen : Colors.white54,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Lewati tamu dengan nama yang sudah ada di daftar',
+                        style: GothicTheme.sans(size: 11.5, color: GothicTheme.textGrey),
                       ),
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
-              ValueListenableBuilder<bool>(
-                valueListenable: _skipDuplicates,
-                builder: (context, skip, _) => InkWell(
-                  onTap: () => _skipDuplicates.value = !skip,
-                  child: Padding(
-                    padding: const .symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Icon(
-                          skip ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
-                          size: 18,
-                          color: skip ? _DashboardPalette.whatsappGreen : Colors.white54,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Lewati tamu dengan nama yang sudah ada di daftar',
-                            style: GothicTheme.sans(size: 11.5, color: GothicTheme.textGrey),
-                          ),
-                        ),
-                      ],
+            ),
+          ),
+          ValueListenableBuilder<String?>(
+            valueListenable: _errorText,
+            builder: (context, err, _) {
+              if (err == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const .only(top: 6),
+                child: Text(
+                  err,
+                  style: GothicTheme.sans(size: 11.5, color: _DashboardPalette.rose),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<List<ParsedGuestDraft>>(
+            valueListenable: _previewDrafts,
+            builder: (context, drafts, _) {
+              if (drafts.isEmpty) return const SizedBox.shrink();
+              final withPhone = drafts.where((d) => d.phone.isNotEmpty).length;
+              return DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: _DashboardPalette.whatsappDark,
+                  borderRadius: .all(.circular(10)),
+                  border: Border.fromBorderSide(
+                    BorderSide(color: _DashboardPalette.whatsappGreen, width: 0.7),
+                  ),
+                ),
+                child: Padding(
+                  padding: const .all(10),
+                  child: Text(
+                    'Siap diimpor: ${drafts.length} tamu ($withPhone dengan nomor WA, '
+                    '${drafts.length - withPhone} tanpa nomor).',
+                    style: GothicTheme.sans(
+                      size: 11.5,
+                      color: _DashboardPalette.whatsappGreen,
+                      weight: .bold,
                     ),
                   ),
                 ),
-              ),
-              ValueListenableBuilder<String?>(
-                valueListenable: _errorText,
-                builder: (context, err, _) {
-                  if (err == null) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const .only(top: 6),
-                    child: Text(
-                      err,
-                      style: GothicTheme.sans(size: 11.5, color: _DashboardPalette.rose),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-              ValueListenableBuilder<List<ParsedGuestDraft>>(
-                valueListenable: _previewDrafts,
-                builder: (context, drafts, _) {
-                  if (drafts.isEmpty) return const SizedBox.shrink();
-                  final withPhone = drafts.where((d) => d.phone.isNotEmpty).length;
-                  return DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: _DashboardPalette.whatsappDark,
-                      borderRadius: .all(.circular(10)),
-                      border: Border.fromBorderSide(
-                        BorderSide(color: _DashboardPalette.whatsappGreen, width: 0.7),
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const .all(10),
-                      child: Text(
-                        'Siap diimpor: ${drafts.length} tamu ($withPhone dengan nomor WA, '
-                        '${drafts.length - withPhone} tanpa nomor).',
-                        style: GothicTheme.sans(
-                          size: 11.5,
-                          color: _DashboardPalette.whatsappGreen,
-                          weight: .bold,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
+              );
+            },
           ),
-        ),
+        ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Batal', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+        Padding(
+          padding: const .only(bottom: 20),
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Batal', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+          ),
         ),
-        ValueListenableBuilder<List<ParsedGuestDraft>>(
-          valueListenable: _previewDrafts,
-          builder: (context, drafts, _) => ElevatedButton(
-            onPressed: drafts.isEmpty
-                ? null
-                : () {
-                    if (_looksLikeJson.value) {
-                      widget.onImportJsonBackup(_textController.text);
-                    } else {
-                      widget.onImportDrafts(drafts, skipDuplicates: _skipDuplicates.value);
-                    }
-                  },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _DashboardPalette.whatsappGreen,
-              foregroundColor: GothicTheme.bgBlack,
-              disabledBackgroundColor: Colors.white12,
-            ),
-            child: Text(
-              'Impor ${drafts.length} Tamu',
-              style: GothicTheme.sans(
-                size: 12,
-                color: drafts.isEmpty ? Colors.white38 : GothicTheme.bgBlack,
-                weight: .bold,
+        Padding(
+          padding: const .only(bottom: 20),
+          child: ValueListenableBuilder<List<ParsedGuestDraft>>(
+            valueListenable: _previewDrafts,
+            builder: (context, drafts, _) => ElevatedButton(
+              onPressed: drafts.isEmpty
+                  ? null
+                  : () {
+                      if (_looksLikeJson.value) {
+                        widget.onImportJsonBackup(_textController.text);
+                      } else {
+                        widget.onImportDrafts(drafts, skipDuplicates: _skipDuplicates.value);
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _DashboardPalette.whatsappGreen,
+                foregroundColor: GothicTheme.bgBlack,
+                disabledBackgroundColor: Colors.white12,
+              ),
+              child: Text(
+                'Impor ${drafts.length} Tamu',
+                style: GothicTheme.sans(
+                  size: 12,
+                  color: drafts.isEmpty ? Colors.white38 : GothicTheme.bgBlack,
+                  weight: .bold,
+                ),
               ),
             ),
           ),
@@ -2624,81 +3037,77 @@ class const _BackupExportDialog({
       activePresetId: store.activePresetId,
     );
 
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 440,
       title: Text('Ekspor & Backup Data Tamu', style: GothicTheme.sans(size: 15, weight: .bold)),
-      content: SizedBox(
-        width: 440,
-        child: Column(
-          mainAxisSize: .min,
-          crossAxisAlignment: .stretch,
-          children: [
-            Text(
-              'Data tamu disimpan aman secara lokal di browser Anda. '
-              'Unduh dalam format CSV atau JSON untuk cadangan data.',
-              style: GothicTheme.sans(size: 12, color: Colors.white70),
+      content: Column(
+        mainAxisSize: .min,
+        crossAxisAlignment: .stretch,
+        children: [
+          Text(
+            'Data tamu disimpan aman secara lokal di browser Anda. '
+            'Unduh dalam format CSV atau JSON untuk cadangan data.',
+            style: GothicTheme.sans(size: 12, color: Colors.white70),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: () {
+              if (kIsWeb &&
+                  WebInterop.downloadTextFile(
+                    filename: 'daftar_tamu_ojay_mae.csv',
+                    content: csvData,
+                    mimeType: 'text/csv;charset=utf-8',
+                  )) {
+                onShowMessage('File CSV daftar tamu diunduh.');
+              } else {
+                unawaited(_copy(context, csvData, 'Data CSV disalin ke clipboard!'));
+              }
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: GothicTheme.white,
+              side: const BorderSide(color: _DashboardPalette.borderStrong),
+              padding: const .symmetric(vertical: 12, horizontal: 14),
             ),
-            const SizedBox(height: 14),
-            OutlinedButton.icon(
-              onPressed: () {
-                if (kIsWeb &&
-                    WebInterop.downloadTextFile(
-                      filename: 'daftar_tamu_ojay_mae.csv',
-                      content: csvData,
-                      mimeType: 'text/csv;charset=utf-8',
-                    )) {
-                  onShowMessage('File CSV daftar tamu diunduh.');
-                } else {
-                  unawaited(_copy(context, csvData, 'Data CSV disalin ke clipboard!'));
-                }
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GothicTheme.white,
-                side: const BorderSide(color: _DashboardPalette.borderStrong),
-                padding: const .symmetric(vertical: 12, horizontal: 14),
-              ),
-              icon: const Icon(Icons.table_chart_outlined, size: 17),
-              label: Text(
-                kIsWeb ? 'Unduh CSV (.csv)' : 'Salin Data CSV',
-                style: GothicTheme.sans(size: 12, weight: .bold),
-              ),
+            icon: const Icon(Icons.table_chart_outlined, size: 17),
+            label: Text(
+              kIsWeb ? 'Unduh CSV (.csv)' : 'Salin Data CSV',
+              style: GothicTheme.sans(size: 12, weight: .bold),
             ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () {
-                if (kIsWeb &&
-                    WebInterop.downloadTextFile(
-                      filename: 'backup_undangan_ojay_mae.json',
-                      content: jsonData,
-                      mimeType: 'application/json;charset=utf-8',
-                    )) {
-                  onShowMessage('File JSON backup diunduh.');
-                } else {
-                  unawaited(_copy(context, jsonData, 'Backup JSON disalin ke clipboard!'));
-                }
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: GothicTheme.white,
-                side: const BorderSide(color: _DashboardPalette.borderStrong),
-                padding: const .symmetric(vertical: 12, horizontal: 14),
-              ),
-              icon: const Icon(Icons.data_object_rounded, size: 17),
-              label: Text(
-                kIsWeb ? 'Unduh Backup Lengkap (.json)' : 'Salin Backup JSON',
-                style: GothicTheme.sans(size: 12, weight: .bold),
-              ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () {
+              if (kIsWeb &&
+                  WebInterop.downloadTextFile(
+                    filename: 'backup_undangan_ojay_mae.json',
+                    content: jsonData,
+                    mimeType: 'application/json;charset=utf-8',
+                  )) {
+                onShowMessage('File JSON backup diunduh.');
+              } else {
+                unawaited(_copy(context, jsonData, 'Backup JSON disalin ke clipboard!'));
+              }
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: GothicTheme.white,
+              side: const BorderSide(color: _DashboardPalette.borderStrong),
+              padding: const .symmetric(vertical: 12, horizontal: 14),
             ),
-          ],
-        ),
+            icon: const Icon(Icons.data_object_rounded, size: 17),
+            label: Text(
+              kIsWeb ? 'Unduh Backup Lengkap (.json)' : 'Salin Backup JSON',
+              style: GothicTheme.sans(size: 12, weight: .bold),
+            ),
+          ),
+        ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('Tutup', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+        Padding(
+          padding: const .only(bottom: 20),
+          child: TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Tutup', style: GothicTheme.sans(size: 12, color: Colors.white60)),
+          ),
         ),
       ],
     );
@@ -2711,7 +3120,7 @@ class const _GuidedQueueDialog({
   required final List<GuestInvitation> initialQueue,
   required final GuestDashboardStore store,
   required final void Function(GuestInvitation guest, String customMessage) onSendViaWhatsApp,
-  required final ValueChanged<GuestInvitation> onMarkSentOnly,
+  required final void Function(GuestInvitation guest, String customMessage) onMarkSentOnly,
 }) extends StatefulWidget {
   @override
   State<_GuidedQueueDialog> createState() => _GuidedQueueDialogState();
@@ -2751,12 +3160,8 @@ class _GuidedQueueDialogState() extends State<_GuidedQueueDialog> {
   Widget build(BuildContext context) {
     final total = widget.initialQueue.length;
 
-    return AlertDialog(
-      backgroundColor: _DashboardPalette.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .all(.circular(16)),
-        side: BorderSide(color: _DashboardPalette.borderStrong),
-      ),
+    return _AdaptivePopupScaffold(
+      desktopWidth: 500,
       title: Row(
         children: [
           const Icon(Icons.bolt_rounded, color: _DashboardPalette.whatsappGreen, size: 22),
@@ -2769,141 +3174,139 @@ class _GuidedQueueDialogState() extends State<_GuidedQueueDialog> {
           ),
         ],
       ),
-      content: SizedBox(
-        width: 500,
-        child: ValueListenableBuilder<int>(
-          valueListenable: _currentIndex,
-          builder: (context, idx, _) {
-            if (idx >= total) {
-              return Column(
-                mainAxisSize: .min,
-                children: [
-                  const SizedBox(height: 10),
-                  const Icon(
-                    Icons.check_circle_rounded,
-                    size: 52,
-                    color: _DashboardPalette.whatsappGreen,
-                  ),
-                  const SizedBox(height: 12),
-                  Text('Antrean Selesai!', style: GothicTheme.sans(size: 17, weight: .bold)),
-                  const SizedBox(height: 6),
-                  Text(
-                    '$_processedInSession undangan telah dikirim/ditandai dari $total tamu dalam antrean.',
-                    textAlign: .center,
-                    style: GothicTheme.sans(size: 12.5, color: Colors.white70),
-                  ),
-                ],
-              );
-            }
+      content: ValueListenableBuilder<int>(
+        valueListenable: _currentIndex,
+        builder: (context, idx, _) {
+          if (idx >= total) {
+            return Column(
+              mainAxisSize: .min,
+              children: [
+                const SizedBox(height: 10),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  size: 52,
+                  color: _DashboardPalette.whatsappGreen,
+                ),
+                const SizedBox(height: 12),
+                Text('Antrean Selesai!', style: GothicTheme.sans(size: 17, weight: .bold)),
+                const SizedBox(height: 6),
+                Text(
+                  '$_processedInSession undangan telah dikirim/ditandai dari $total tamu dalam antrean.',
+                  textAlign: .center,
+                  style: GothicTheme.sans(size: 12.5, color: Colors.white70),
+                ),
+              ],
+            );
+          }
 
-            final guest = widget.initialQueue[idx];
-            final link = widget.store.buildLinkForGuest(guest);
-            final progress = (idx + 1) / total;
+          final guest = widget.initialQueue[idx];
+          final link = widget.store.buildLinkForGuest(guest);
+          final progress = (idx + 1) / total;
 
-            return SingleChildScrollView(
-              child: Column(
-                mainAxisSize: .min,
-                crossAxisAlignment: .stretch,
+          return Column(
+            mainAxisSize: .min,
+            crossAxisAlignment: .stretch,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                alignment: .spaceBetween,
+                crossAxisAlignment: .center,
                 children: [
-                  Row(
-                    mainAxisAlignment: .spaceBetween,
-                    children: [
-                      Text(
-                        'Tamu ${idx + 1} dari $total',
-                        style: GothicTheme.sans(
-                          size: 12,
-                          color: _DashboardPalette.whatsappGreen,
-                          weight: .bold,
-                        ),
-                      ),
-                      Text(
-                        '$_processedInSession terkirim sesi ini',
-                        style: GothicTheme.sans(size: 11, color: Colors.white54),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 5,
-                    borderRadius: const .all(.circular(4)),
-                    color: _DashboardPalette.whatsappGreen,
-                    backgroundColor: Colors.white12,
-                  ),
-                  const SizedBox(height: 14),
-                  DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: _DashboardPalette.surfaceElevated,
-                      borderRadius: .all(.circular(12)),
-                      border: Border.fromBorderSide(BorderSide(color: _DashboardPalette.border)),
-                    ),
-                    child: Padding(
-                      padding: const .all(12),
-                      child: Column(
-                        crossAxisAlignment: .start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  guest.name,
-                                  style: GothicTheme.sans(size: 15, weight: .bold),
-                                ),
-                              ),
-                              _MiniTag(
-                                label: guest.category,
-                                fg: GothicTheme.textGrey,
-                                bg: _DashboardPalette.surfaceInput,
-                                border: _DashboardPalette.border,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            guest.hasPhone
-                                ? WhatsAppInvitationHelper.formatPhoneDisplay(guest.phone)
-                                : 'Tanpa Nomor — Pilih kontak manual di WhatsApp',
-                            style: GothicTheme.sans(
-                              size: 12,
-                              color: guest.hasPhone ? Colors.white70 : _DashboardPalette.amber,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(link, style: GothicTheme.sans(size: 11, color: Colors.white54)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   Text(
-                    'Pesan WhatsApp (bisa diedit khusus untuk tamu ini):',
-                    style: GothicTheme.sans(size: 11, color: Colors.white60),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _messageController,
-                    maxLines: 7,
-                    minLines: 5,
-                    style: GothicTheme.sans(size: 12, height: 1.4),
-                    decoration: const InputDecoration(
-                      filled: true,
-                      fillColor: _DashboardPalette.surfaceInput,
-                      contentPadding: .all(12),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: .all(.circular(10)),
-                        borderSide: BorderSide(color: _DashboardPalette.border),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: .all(.circular(10)),
-                        borderSide: BorderSide(color: GothicTheme.white, width: 1.2),
-                      ),
+                    'Tamu ${idx + 1} dari $total',
+                    style: GothicTheme.sans(
+                      size: 12,
+                      color: _DashboardPalette.whatsappGreen,
+                      weight: .bold,
                     ),
+                  ),
+                  Text(
+                    '$_processedInSession terkirim sesi ini',
+                    style: GothicTheme.sans(size: 11, color: Colors.white54),
                   ),
                 ],
               ),
-            );
-          },
-        ),
+              const SizedBox(height: 6),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 5,
+                borderRadius: const .all(.circular(4)),
+                color: _DashboardPalette.whatsappGreen,
+                backgroundColor: Colors.white12,
+              ),
+              const SizedBox(height: 14),
+              DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: _DashboardPalette.surfaceElevated,
+                  borderRadius: .all(.circular(12)),
+                  border: Border.fromBorderSide(BorderSide(color: _DashboardPalette.border)),
+                ),
+                child: Padding(
+                  padding: const .all(12),
+                  child: Column(
+                    crossAxisAlignment: .start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              guest.name,
+                              style: GothicTheme.sans(size: 15, weight: .bold),
+                            ),
+                          ),
+                          _MiniTag(
+                            label: guest.category,
+                            fg: GothicTheme.textGrey,
+                            bg: _DashboardPalette.surfaceInput,
+                            border: _DashboardPalette.border,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        guest.hasPhone
+                            ? WhatsAppInvitationHelper.formatPhoneDisplay(guest.phone)
+                            : 'Tanpa Nomor — Pilih kontak manual di WhatsApp',
+                        style: GothicTheme.sans(
+                          size: 12,
+                          color: guest.hasPhone ? Colors.white70 : _DashboardPalette.amber,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(link, style: GothicTheme.sans(size: 11, color: Colors.white54)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Pesan WhatsApp (bisa diedit khusus untuk tamu ini):',
+                style: GothicTheme.sans(size: 11, color: Colors.white60),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _messageController,
+                maxLines: 7,
+                minLines: 5,
+                style: GothicTheme.sans(size: 12, height: 1.4),
+                decoration: const InputDecoration(
+                  filled: true,
+                  fillColor: _DashboardPalette.surfaceInput,
+                  contentPadding: .all(12),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: .all(.circular(10)),
+                    borderSide: BorderSide(color: _DashboardPalette.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: .all(.circular(10)),
+                    borderSide: BorderSide(color: GothicTheme.white, width: 1.2),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
       actions: [
         ValueListenableBuilder<int>(
@@ -2952,7 +3355,7 @@ class _GuidedQueueDialogState() extends State<_GuidedQueueDialog> {
                 ),
                 OutlinedButton(
                   onPressed: () {
-                    widget.onMarkSentOnly(guest);
+                    widget.onMarkSentOnly(guest, _messageController.text);
                     _processedInSession++;
                     _goToIndex(idx + 1);
                   },
