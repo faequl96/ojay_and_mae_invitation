@@ -23,7 +23,7 @@ void main() {
       expect(WhatsAppInvitationHelper.formatPhoneDisplay('6581234567'), '+6581234567');
     });
 
-    test('normalizeBaseUrl strips dashboard paths and trailing slashes', () {
+    test('normalizeBaseUrl strips /dashboard path and trailing slashes', () {
       expect(
         WhatsAppInvitationHelper.normalizeBaseUrl('https://ojay-mae.vercel.app/dashboard/'),
         'https://ojay-mae.vercel.app',
@@ -37,8 +37,16 @@ void main() {
         'https://ojay-mae.vercel.app',
       );
       expect(
-        WhatsAppInvitationHelper.normalizeBaseUrl('http://localhost:8080/kirim'),
+        WhatsAppInvitationHelper.normalizeBaseUrl('http://localhost:8080/dashboard'),
         'http://localhost:8080',
+      );
+      expect(
+        WhatsAppInvitationHelper.normalizeBaseUrl('http://localhost:8080/index.html'),
+        'http://localhost:8080',
+      );
+      expect(
+        WhatsAppInvitationHelper.normalizeBaseUrl('http://localhost:8080/kirim'),
+        'http://localhost:8080/kirim',
       );
       expect(WhatsAppInvitationHelper.isSupportedImportFilename('tamu.csv'), isTrue);
       expect(WhatsAppInvitationHelper.isSupportedImportFilename('backup.JSON'), isTrue);
@@ -246,7 +254,9 @@ Hendra Kusuma
       expect(find.text('Simpan & Kirim'), findsNothing);
     });
 
-    testWidgets('Route /admin and /?page=dashboard also open dashboard cleanly', (tester) async {
+    testWidgets('Only /dashboard opens dashboard; legacy routes and query params do not', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       tester.platformDispatcher.defaultRouteNameTestValue = '/?page=dashboard';
@@ -258,9 +268,17 @@ Hendra Kusuma
       await tester.pumpWidget(const OjayMaeWeddingApp());
       await tester.pump();
 
-      expect(find.byType(InvitationDashboardScreen), findsOneWidget);
-      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/admin')), isTrue);
-      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/kirim')), isTrue);
+      expect(find.byType(InvitationDashboardScreen), findsNothing);
+      expect(find.byType(InvitationScreen), findsOneWidget);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/dashboard')), isTrue);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/dashboard/')), isTrue);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/admin')), isFalse);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/kirim')), isFalse);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/kirim-undangan')), isFalse);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/?page=dashboard')), isFalse);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/?mode=dashboard')), isFalse);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/?dashboard=1')), isFalse);
+      expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/#/dashboard')), isFalse);
       expect(OjayMaeWeddingApp.isDashboardRoute(Uri.parse('/?to=Budi')), isFalse);
     });
 

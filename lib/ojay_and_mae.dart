@@ -125,14 +125,8 @@ final class const _RsvpBoardState({
 // ROOT WIDGET
 // ============================================================================
 class const OjayMaeWeddingApp({super.key, final String? recipientName}) extends StatelessWidget {
-  static const List<String> _recipientParamKeys = [
-    'to',
-    'kepada',
-    'guest',
-    'nama',
-    'name',
-    'penerima',
-  ];
+  static const String _recipientParamKey = 'to';
+  static const String _dashboardPath = '/dashboard';
 
   static const List<String> _shortMonths = [
     'Jan',
@@ -186,11 +180,7 @@ class const OjayMaeWeddingApp({super.key, final String? recipientName}) extends 
     if (fragQueryIndex != -1) {
       params.addAll(_safeSplitQuery(uri.fragment.substring(fragQueryIndex + 1)));
     }
-    for (final key in _recipientParamKeys) {
-      final value = params[key]?.trim();
-      if (value != null && value.isNotEmpty) return value;
-    }
-    return '';
+    return params[_recipientParamKey]?.trim() ?? '';
   }
 
   static Map<String, String> _safeSplitQuery(String query) {
@@ -220,26 +210,13 @@ class const OjayMaeWeddingApp({super.key, final String? recipientName}) extends 
     }
   }
 
-  static const Set<String> _dashboardPaths = {'/dashboard', '/admin', '/kirim', '/kirim-undangan'};
-
   static bool isDashboardRoute(Uri? uri) {
     if (uri == null) return false;
     var cleanPath = uri.path.trim().toLowerCase();
     while (cleanPath.length > 1 && cleanPath.endsWith('/')) {
       cleanPath = cleanPath.substring(0, cleanPath.length - 1);
     }
-    if (_dashboardPaths.contains(cleanPath)) return true;
-
-    final frag = uri.fragment.trim().toLowerCase();
-    final fragPath = frag.contains('?') ? frag.substring(0, frag.indexOf('?')) : frag;
-    final normalizedFrag = fragPath.startsWith('/') ? fragPath : '/$fragPath';
-    if (_dashboardPaths.contains(normalizedFrag)) return true;
-
-    final params = <String, String>{..._safeSplitQuery(uri.query)};
-    final mode = (params['page'] ?? params['mode'] ?? '').trim().toLowerCase();
-    if (mode == 'dashboard' || mode == 'admin' || mode == 'kirim') return true;
-    if (params['dashboard'] == '1' || params['dashboard'] == 'true') return true;
-    return false;
+    return cleanPath == _dashboardPath;
   }
 
   static String _normalizeRouteName(String? routeName) {
@@ -2618,7 +2595,8 @@ class const _ThankYouSection() extends StatelessWidget {
                       ),
                       const SizedBox(height: 22),
                       TextButton.icon(
-                        onPressed: () => Navigator.of(context).pushNamed('/dashboard'),
+                        onPressed: () =>
+                            Navigator.of(context).pushNamed(OjayMaeWeddingApp._dashboardPath),
                         icon: const Icon(
                           Icons.dashboard_customize_outlined,
                           size: 13,

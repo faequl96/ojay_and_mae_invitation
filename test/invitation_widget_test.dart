@@ -369,7 +369,7 @@ void main() {
   ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
-    tester.platformDispatcher.defaultRouteNameTestValue = '/undangan?kepada=Bapak/Ibu';
+    tester.platformDispatcher.defaultRouteNameTestValue = '/undangan?to=Bapak/Ibu';
     addTearDown(() {
       tester.platformDispatcher.clearDefaultRouteNameTestValue();
       tester.view.reset();
@@ -383,17 +383,41 @@ void main() {
     expect(find.text('Bapak/Ibu'), findsOneWidget);
 
     final route = ModalRoute.of(tester.element(find.byType(InvitationScreen)));
-    expect(route?.settings.name, '/undangan?kepada=Bapak/Ibu');
+    expect(route?.settings.name, '/undangan?to=Bapak/Ibu');
   });
 
-  test('resolveRecipientName handles query, fragment query, and malformed percent encoding', () {
+  testWidgets('Ignores non-to invitation params and falls back to Tamu Undangan', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.defaultRouteNameTestValue = '/?kepada=Budi';
+    addTearDown(() {
+      tester.platformDispatcher.clearDefaultRouteNameTestValue();
+      tester.view.reset();
+    });
+
+    await tester.pumpWidget(const OjayMaeWeddingApp());
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(InvitationScreen), findsOneWidget);
+    expect(find.text('Budi'), findsNothing);
+    expect(find.text('Tamu Undangan'), findsOneWidget);
+  });
+
+  test('resolveRecipientName only uses to param across query, fragment query, and malformed percent encoding', () {
     expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?to=Faiq')), 'Faiq');
     expect(
-      OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/#/?kepada=Siti%20Aminah')),
+      OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/#/?to=Siti%20Aminah')),
       'Siti Aminah',
     );
     expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?to=Who?')), 'Who?');
     expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?to=100%')), '100%');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?kepada=Budi')), '');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?guest=Budi')), '');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?nama=Budi')), '');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?name=Budi')), '');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?penerima=Budi')), '');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/#/?kepada=Siti%20Aminah')), '');
   });
 
   test('formatRsvpTimestamp formats <= 24h relatively and > 24h as date-time', () {

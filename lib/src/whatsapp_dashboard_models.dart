@@ -315,13 +315,7 @@ abstract final class WhatsAppInvitationHelper._() {
     return '+$normalized';
   }
 
-  static const List<String> _dashboardPathSuffixes = [
-    '/kirim-undangan',
-    '/dashboard',
-    '/admin',
-    '/kirim',
-    '/index.html',
-  ];
+  static const List<String> _dashboardPathSuffixes = ['/dashboard', '/index.html'];
 
   static String defaultBaseUrl() {
     final href = WebInterop.getCurrentHref();
