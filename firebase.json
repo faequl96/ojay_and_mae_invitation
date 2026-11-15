@@ -1,1 +1,17 @@
-{"flutter":{"platforms":{"dart":{"lib/firebase_options.dart":{"projectId":"ojay-and-mae-invite","configurations":{"web":"1:1039290370837:web:7e371e0a2c14adb2d0b71c"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "ojay-and-mae-invite",
+          "configurations": {
+            "web": "1:1039290370837:web:7e371e0a2c14adb2d0b71c"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

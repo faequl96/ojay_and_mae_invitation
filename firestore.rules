@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rsvps/{docId} {
+      // Tamu dapat membaca daftar ucapan dan melakukan agregasi count().
+      allow read: if true;
+
+      // Membuat ucapan baru dengan validasi struktur field.
+      allow create: if request.resource.data.keys().hasOnly([
+          'recipientId',
+          'deviceId',
+          'name',
+          'recipientName',
+          'recipientLabel',
+          'attendance',
+          'message',
+          'createdAt'
+        ])
+        && request.resource.data.recipientId is string
+        && request.resource.data.recipientId.size() > 0
+        && request.resource.data.recipientId.size() <= 240
+        && request.resource.data.deviceId is string
+        && request.resource.data.deviceId.size() > 0
+        && request.resource.data.deviceId.size() <= 64
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.recipientName is string
+        && request.resource.data.recipientName.size() <= 200
+        && request.resource.data.recipientLabel is string
+        && request.resource.data.recipientLabel.size() <= 220
+        && request.resource.data.attendance in ['Hadir', 'Tidak Hadir', 'Masih Ragu']
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 1
+        && request.resource.data.message.size() <= 1000
+        && request.resource.data.createdAt == request.time;
+
+      // Saat perangkat yang sama mengganti status kehadiran, hanya field 'attendance' yang boleh berubah.
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendance'])
+        && request.resource.data.attendance in ['Hadir', 'Tidak Hadir', 'Masih Ragu'];
+
+      allow delete: if false;
+    }
+
+    match /rsvp_sessions/{sessionId} {
+      // Dipakai untuk get(recipientId) dan count() berdasarkan normalizedRecipient.
+      allow read: if true;
+
+      allow create: if request.resource.data.keys().hasOnly([
+          'recipientId',
+          'deviceId',
+          'recipientName',
+          'normalizedRecipient',
+          'orderIndex',
+          'recipientLabel',
+          'openedAt'
+        ])
+        && request.resource.data.recipientId == sessionId
+        && request.resource.data.recipientId is string
+        && request.resource.data.recipientId.size() > 0
+        && request.resource.data.recipientId.size() <= 240
+        && request.resource.data.deviceId is string
+        && request.resource.data.deviceId.size() > 0
+        && request.resource.data.deviceId.size() <= 64
+        && request.resource.data.recipientName is string
+        && request.resource.data.recipientName.size() >= 1
+        && request.resource.data.recipientName.size() <= 200
+        && request.resource.data.normalizedRecipient is string
+        && request.resource.data.normalizedRecipient.size() >= 1
+        && request.resource.data.normalizedRecipient.size() <= 200
+        && request.resource.data.orderIndex is int
+        && request.resource.data.orderIndex >= 0
+        && request.resource.data.recipientLabel is string
+        && request.resource.data.recipientLabel.size() >= 1
+        && request.resource.data.recipientLabel.size() <= 220
+        && request.resource.data.openedAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

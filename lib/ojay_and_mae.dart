@@ -1301,8 +1301,20 @@ class _RsvpSectionState()
   }
 
   Future<void> _attachFirestore() async {
+    if (kIsWeb && !FirebaseBootstrap.isReady && mounted) {
+      _publishRemoteState(isLoading: true);
+    }
     final ready = await FirebaseBootstrap.ensureInitialized();
-    if (!mounted || !ready) return;
+    if (!mounted) return;
+    if (!ready) {
+      if (kIsWeb) {
+        _publishRemoteState(
+          isLoading: false,
+          errorMessage: 'Gagal terhubung ke server Firebase. Periksa koneksi atau konfigurasi Firebase.',
+        );
+      }
+      return;
+    }
     await _loadInitialRsvps();
   }
 
@@ -1368,8 +1380,7 @@ class _RsvpSectionState()
   }
 
   Future<void> _loadInitialRsvps({bool isRefresh = false}) async {
-    final col = _collection;
-    if (col == null || _isFetchingPage) return;
+    if (_isFetchingPage) return;
 
     if (isRefresh) {
       final lastFetch = _lastRemoteFetchAt;
@@ -1381,15 +1392,35 @@ class _RsvpSectionState()
 
     _isFetchingPage = true;
     final previousState = _boardState.value;
-    _boardState.value = _RsvpBoardState(
-      entries: previousState.entries,
-      isUsingFirestore: true,
-      isLoading: true,
-      hasMore: previousState.hasMore,
-      totalCount: previousState.totalCount,
-    );
+    if (kIsWeb || FirebaseBootstrap.isReady) {
+      _boardState.value = _RsvpBoardState(
+        entries: previousState.entries,
+        isUsingFirestore: true,
+        isLoading: true,
+        hasMore: previousState.hasMore,
+        totalCount: previousState.totalCount,
+      );
+    }
 
     try {
+      final ready = FirebaseBootstrap.isReady || await FirebaseBootstrap.ensureInitialized();
+      if (!mounted) return;
+      final col = ready ? _collection : null;
+      if (col == null) {
+        if (kIsWeb) {
+          if (isRefresh && previousState.entries.isNotEmpty) {
+            _publishRemoteState(isLoading: false);
+            _showSnackBar('Gagal terhubung ke server Firebase. Periksa koneksi atau konfigurasi Firebase.');
+          } else {
+            _publishRemoteState(
+              isLoading: false,
+              errorMessage: 'Gagal terhubung ke server Firebase. Periksa koneksi atau konfigurasi Firebase.',
+            );
+          }
+        }
+        return;
+      }
+
       final snap = await col.orderBy('createdAt', descending: true).limit(_pageSize).get();
       if (!mounted) return;
       _lastRemoteFetchAt = DateTime.now();
@@ -1417,7 +1448,11 @@ class _RsvpSectionState()
         try {
           final countSnap = await col.count().get();
           fetchedCount = countSnap.count;
-        } catch (_) {}
+        } catch (error) {
+          if (kDebugMode && kIsWeb) {
+            debugPrint('Firestore count() failed: $error');
+          }
+        }
         if (!mounted) return;
         _totalRemoteCount = fetchedCount;
         _hasMoreRemote = fetchedCount == null || fetchedCount > _remoteEntries.length;
@@ -1425,7 +1460,10 @@ class _RsvpSectionState()
 
       if (isRefresh) _currentPage.value = 0;
       _publishRemoteState(isLoading: false);
-    } catch (_) {
+    } catch (error) {
+      if (kDebugMode && kIsWeb) {
+        debugPrint('Firestore _loadInitialRsvps failed: $error');
+      }
       if (!mounted) return;
       if (isRefresh && previousState.entries.isNotEmpty) {
         _publishRemoteState(isLoading: false);
@@ -1496,8 +1534,10 @@ class _RsvpSectionState()
         }
         _currentPage.value = targetPage;
       }
-    } catch (_) {
-      // Abaikan kegagalan sementara; tetap pertahankan halaman dan cache yang sudah dimuat.
+    } catch (error) {
+      if (kDebugMode && kIsWeb) {
+        debugPrint('Firestore _goToPage failed: $error');
+      }
     } finally {
       _isFetchingPage = false;
       if (mounted) _publishRemoteState(isLoading: false);
@@ -1553,7 +1593,11 @@ class _RsvpSectionState()
         });
         _DeviceIdentity.setCachedRecipientLabel(recipientId, label);
         return _resolvedRecipientLabel = label;
-      } catch (_) {}
+      } catch (error) {
+        if (kDebugMode && kIsWeb) {
+          debugPrint('Firestore _resolveRecipientLabelForSubmit failed: $error');
+        }
+      }
     }
 
     return _resolvedRecipientLabel = _computeLocalRecipientLabel(
@@ -1609,13 +1653,21 @@ class _RsvpSectionState()
     required String message,
     required _AttendanceStatus attendance,
   }) async {
+    final ready = FirebaseBootstrap.isReady || await FirebaseBootstrap.ensureInitialized();
+    if (!mounted) return false;
+
     final recipientName = widget.defaultName.trim();
     final recipientId = _DeviceIdentity.buildRecipientDeviceId(recipientName);
     final deviceId = _DeviceIdentity.deviceId;
     final recipientLabel = await _resolveRecipientLabelForSubmit();
+    if (!mounted) return false;
 
-    final col = _collection;
+    final col = ready ? _collection : null;
     if (col == null) {
+      if (kIsWeb) {
+        _showSnackBar('Gagal mengirim ucapan. Periksa koneksi atau konfigurasi Firebase.');
+        return false;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 250));
       if (!mounted) return false;
       _applyLocalRsvp(
@@ -1662,28 +1714,35 @@ class _RsvpSectionState()
       _DeviceIdentity.setLastSubmittedAttendance(recipientId, attendance.label);
       if (!mounted) return false;
 
-      final newEntry = _RsvpEntry(
-        recipientId: recipientId,
-        name: name,
-        recipientName: recipientName,
-        recipientLabel: recipientLabel,
-        attendance: attendance,
-        message: message,
-      );
-      _remoteEntries = _syncLatestAttendance([newEntry, ..._remoteEntries]);
-      if (_totalRemoteCount != null) {
-        _totalRemoteCount = _totalRemoteCount! + 1;
-        _hasMoreRemote = _totalRemoteCount! > _remoteEntries.length;
-      } else if (!_hasMoreRemote) {
-        _totalRemoteCount = _remoteEntries.length;
+      if (_lastRemoteFetchAt == null) {
+        await _loadInitialRsvps();
+      } else {
+        final newEntry = _RsvpEntry(
+          recipientId: recipientId,
+          name: name,
+          recipientName: recipientName,
+          recipientLabel: recipientLabel,
+          attendance: attendance,
+          message: message,
+        );
+        _remoteEntries = _syncLatestAttendance([newEntry, ..._remoteEntries]);
+        if (_totalRemoteCount != null) {
+          _totalRemoteCount = _totalRemoteCount! + 1;
+          _hasMoreRemote = _totalRemoteCount! > _remoteEntries.length;
+        } else if (!_hasMoreRemote) {
+          _totalRemoteCount = _remoteEntries.length;
+        }
+        _lastRemoteFetchAt = DateTime.now();
+        _currentPage.value = 0;
+        _publishRemoteState(isLoading: false);
       }
-      _lastRemoteFetchAt = DateTime.now();
-      _currentPage.value = 0;
-      _publishRemoteState(isLoading: false);
 
       _showSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.');
       return true;
-    } catch (_) {
+    } catch (error) {
+      if (kDebugMode && kIsWeb) {
+        debugPrint('Firestore _submitRsvp failed: $error');
+      }
       if (!mounted) return false;
       _showSnackBar('Gagal mengirim ucapan. Periksa koneksi atau konfigurasi Firebase.');
       return false;
@@ -1800,6 +1859,14 @@ class _RsvpFormCardState() extends State<_RsvpFormCard> {
     focusedBorder: _focusedBorder,
   );
 
+  static final List<TextInputFormatter> _nameInputFormatters = List<TextInputFormatter>.unmodifiable([
+    LengthLimitingTextInputFormatter(100),
+  ]);
+  static final List<TextInputFormatter> _messageInputFormatters =
+      List<TextInputFormatter>.unmodifiable([
+        LengthLimitingTextInputFormatter(1000),
+      ]);
+
   late final TextEditingController _nameController;
   final TextEditingController _messageController = TextEditingController();
   final ValueNotifier<_AttendanceStatus> _attendance = ValueNotifier<_AttendanceStatus>(.attending);
@@ -1868,6 +1935,7 @@ class _RsvpFormCardState() extends State<_RsvpFormCard> {
           children: [
             TextField(
               controller: _nameController,
+              inputFormatters: _nameInputFormatters,
               style: GothicTheme.sans(size: 13, weight: .w600),
               decoration: _nameDecoration,
             ),
@@ -1897,6 +1965,7 @@ class _RsvpFormCardState() extends State<_RsvpFormCard> {
             const SizedBox(height: 16),
             TextField(
               controller: _messageController,
+              inputFormatters: _messageInputFormatters,
               maxLines: 3,
               style: GothicTheme.sans(size: 13),
               decoration: _messageDecoration,
