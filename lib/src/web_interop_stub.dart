@@ -15,6 +15,23 @@ abstract final class WebInterop._() {
   static String? getStorageItem(String key) => null;
 
   static void setStorageItem(String key, String value) {}
+
+  static void removeStorageItem(String key) {}
+
+  static String? getCurrentOrigin() => null;
+
+  static String? getCurrentHref() => null;
+
+  static void openExternalUrl(String url) {}
+
+  static bool downloadTextFile({
+    required String filename,
+    required String content,
+    String mimeType = 'text/plain;charset=utf-8',
+  }) => false;
+
+  static Future<({String name, String content})?> pickTextFile({String accept = '.csv,.json'}) =>
+      Future<({String name, String content})?>.value(null);
 }
 
 /// Pemutar audio non-web (stub untuk pengujian widget VM).

@@ -19,6 +19,68 @@ external String? _lsGetItem(String key);
 @JS('localStorage.setItem')
 external void _lsSetItem(String key, String value);
 
+@JS('localStorage.removeItem')
+external void _lsRemoveItem(String key);
+
+@JS('window.location.origin')
+external String get _windowOrigin;
+
+@JS('window.location.href')
+external String get _windowHref;
+
+@JS('window.open')
+external JSAny? _windowOpen(String url, String target, String features);
+
+@JS('URL.createObjectURL')
+external String _urlCreateObjectUrl(_JSBlob blob);
+
+@JS('URL.revokeObjectURL')
+external void _urlRevokeObjectUrl(String url);
+
+@JS('document.createElement')
+external _JSElement _docCreateElement(String tagName);
+
+@JS('document.body')
+external _JSElement? get _docBody;
+
+@JS('Blob')
+extension type _JSBlob._(JSObject _) implements JSObject {
+  external new(JSArray<JSString> parts, JSObject options);
+}
+
+extension type _JSElementStyle._(JSObject _) implements JSObject {
+  external set display(String value);
+}
+
+extension type _JSFile._(JSObject _) implements JSObject {
+  external String get name;
+  external JSPromise<JSString> text();
+}
+
+extension type _JSFileList._(JSObject _) implements JSObject {
+  external int get length;
+  external _JSFile? item(int index);
+}
+
+extension type _JSElement._(JSObject _) implements JSObject {
+  external set href(String value);
+  external set download(String value);
+  external set type(String value);
+  external set accept(String value);
+  external _JSElementStyle get style;
+  external _JSFileList? get files;
+  external void appendChild(_JSElement child);
+  external void remove();
+  external void click();
+  external void addEventListener(String type, JSFunction listener);
+  external void removeEventListener(String type, JSFunction listener);
+}
+
+@JS('Object')
+extension type _JSBlobOptions._(JSObject _) implements JSObject {
+  external factory ({String type});
+}
+
 @JS('__ojayMaeActiveAudio')
 external _JSAudio? get _globalActiveAudio;
 
@@ -100,6 +162,123 @@ abstract final class WebInterop._() {
     try {
       _lsSetItem(key, value);
     } catch (_) {}
+  }
+
+  static void removeStorageItem(String key) {
+    try {
+      _lsRemoveItem(key);
+    } catch (_) {}
+  }
+
+  static String? getCurrentOrigin() {
+    try {
+      final origin = _windowOrigin.trim();
+      if (origin.isEmpty || origin == 'null') return null;
+      return origin;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? getCurrentHref() {
+    try {
+      final href = _windowHref.trim();
+      if (href.isEmpty || href == 'null') return null;
+      return href;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void openExternalUrl(String url) {
+    try {
+      _windowOpen(url, '_blank', 'noopener,noreferrer');
+    } catch (_) {}
+  }
+
+  static bool downloadTextFile({
+    required String filename,
+    required String content,
+    String mimeType = 'text/plain;charset=utf-8',
+  }) {
+    try {
+      final blob = _JSBlob([content.toJS].toJS, _JSBlobOptions(type: mimeType));
+      final objectUrl = _urlCreateObjectUrl(blob);
+      final anchor = _docCreateElement('a')
+        ..href = objectUrl
+        ..download = filename
+        ..style.display = 'none';
+      _docBody?.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        try {
+          _urlRevokeObjectUrl(objectUrl);
+        } catch (_) {}
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<({String name, String content})?> pickTextFile({String accept = '.csv,.json'}) {
+    final completer = Completer<({String name, String content})?>();
+    try {
+      final input = _docCreateElement('input')
+        ..type = 'file'
+        ..accept = accept
+        ..style.display = 'none';
+
+      late final JSFunction onChangeJs;
+      late final JSFunction onCancelJs;
+
+      void cleanup() {
+        input
+          ..removeEventListener('change', onChangeJs)
+          ..removeEventListener('cancel', onCancelJs)
+          ..remove();
+      }
+
+      onChangeJs = ((JSAny? _) {
+        final files = input.files;
+        final file = (files != null && files.length > 0) ? files.item(0) : null;
+        if (file == null) {
+          cleanup();
+          if (!completer.isCompleted) completer.complete(null);
+          return;
+        }
+        final filename = file.name.trim();
+        unawaited(
+          file.text().toDart.then<void>(
+            (jsText) {
+              cleanup();
+              if (!completer.isCompleted) {
+                completer.complete((name: filename, content: jsText.toDart));
+              }
+            },
+            onError: (Object _) {
+              cleanup();
+              if (!completer.isCompleted) completer.complete(null);
+            },
+          ),
+        );
+      }).toJS;
+
+      onCancelJs = ((JSAny? _) {
+        cleanup();
+        if (!completer.isCompleted) completer.complete(null);
+      }).toJS;
+
+      input
+        ..addEventListener('change', onChangeJs)
+        ..addEventListener('cancel', onCancelJs);
+      _docBody?.appendChild(input);
+      input.click();
+    } catch (_) {
+      if (!completer.isCompleted) completer.complete(null);
+    }
+    return completer.future;
   }
 }
 
