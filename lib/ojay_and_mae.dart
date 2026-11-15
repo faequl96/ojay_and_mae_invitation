@@ -299,6 +299,7 @@ final class const _RsvpEntry({
   required final String recipientLabel,
   required final _AttendanceStatus attendance,
   required final String message,
+  final DateTime? createdAt,
 });
 
 final class const _RsvpBoardState({
@@ -314,27 +315,129 @@ final class const _RsvpBoardState({
 // ROOT WIDGET
 // ============================================================================
 class const OjayMaeWeddingApp({super.key, final String? recipientName}) extends StatelessWidget {
-  static String resolveRecipientName() {
-    final params = <String, String>{...Uri.base.queryParameters};
-    if (Uri.base.fragment.contains('?')) {
-      final fragQuery = Uri.base.fragment.split('?').last;
-      params.addAll(Uri.splitQueryString(fragQuery));
+  static const List<String> _recipientParamKeys = [
+    'to',
+    'kepada',
+    'guest',
+    'nama',
+    'name',
+    'penerima',
+  ];
+
+  static const List<String> _shortMonths = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mei',
+    'Jun',
+    'Jul',
+    'Agu',
+    'Sep',
+    'Okt',
+    'Nov',
+    'Des',
+  ];
+
+  static String formatRsvpTimestamp(DateTime createdAt, {DateTime? now}) {
+    final localCreatedAt = createdAt.toLocal();
+    final localNow = (now ?? DateTime.now()).toLocal();
+    final rawDiff = localNow.difference(localCreatedAt);
+    final diff = rawDiff.isNegative ? Duration.zero : rawDiff;
+
+    if (diff <= const Duration(hours: 24)) {
+      if (diff.inSeconds < 60) {
+        final seconds = math.max(1, diff.inSeconds);
+        return '$seconds detik yang lalu';
+      }
+      if (diff.inHours < 1) {
+        return '${diff.inMinutes} menit yang lalu';
+      }
+      return '${diff.inHours} jam yang lalu';
     }
-    for (final key in const ['to', 'kepada', 'guest', 'nama', 'name', 'penerima']) {
+
+    final month = _shortMonths[localCreatedAt.month - 1];
+    final hour = localCreatedAt.hour.toString().padLeft(2, '0');
+    final minute = localCreatedAt.minute.toString().padLeft(2, '0');
+    return '${localCreatedAt.day} $month ${localCreatedAt.year}, $hour:$minute';
+  }
+
+  static String resolveRecipientName([Uri? uri]) {
+    if (uri != null) {
+      final fromUri = _extractRecipientName(uri);
+      if (fromUri.isNotEmpty) return fromUri;
+    }
+    return _extractRecipientName(Uri.base);
+  }
+
+  static String _extractRecipientName(Uri uri) {
+    final params = <String, String>{..._safeSplitQuery(uri.query)};
+    final fragQueryIndex = uri.fragment.indexOf('?');
+    if (fragQueryIndex != -1) {
+      params.addAll(_safeSplitQuery(uri.fragment.substring(fragQueryIndex + 1)));
+    }
+    for (final key in _recipientParamKeys) {
       final value = params[key]?.trim();
       if (value != null && value.isNotEmpty) return value;
     }
     return '';
   }
 
+  static Map<String, String> _safeSplitQuery(String query) {
+    if (query.isEmpty) return const {};
+    try {
+      return Uri.splitQueryString(query);
+    } on ArgumentError {
+      final result = <String, String>{};
+      for (final part in query.split('&')) {
+        if (part.isEmpty) continue;
+        final eqIndex = part.indexOf('=');
+        final rawKey = eqIndex == -1 ? part : part.substring(0, eqIndex);
+        final rawValue = eqIndex == -1 ? '' : part.substring(eqIndex + 1);
+        final key = _safeDecodeQueryComponent(rawKey);
+        final value = _safeDecodeQueryComponent(rawValue);
+        if (key.isNotEmpty) result[key] = value;
+      }
+      return result;
+    }
+  }
+
+  static String _safeDecodeQueryComponent(String component) {
+    try {
+      return Uri.decodeQueryComponent(component);
+    } on ArgumentError {
+      return component.replaceAll('+', ' ');
+    }
+  }
+
+  static String _normalizeRouteName(String? routeName) {
+    if (routeName == null || routeName.isEmpty) return Navigator.defaultRouteName;
+    final normalized = routeName.startsWith('/') ? routeName : '/$routeName';
+    return Uri.tryParse(normalized) != null ? normalized : Navigator.defaultRouteName;
+  }
+
+  Route<void> _buildInvitationRoute(RouteSettings settings) {
+    final routeName = _normalizeRouteName(settings.name);
+    final normalizedSettings = routeName == settings.name
+        ? settings
+        : RouteSettings(name: routeName, arguments: settings.arguments);
+    final resolvedRecipient = recipientName ?? resolveRecipientName(Uri.tryParse(routeName));
+    return MaterialPageRoute<void>(
+      settings: normalizedSettings,
+      builder: (_) => InvitationScreen(recipientName: resolvedRecipient),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final resolvedRecipient = recipientName ?? resolveRecipientName();
     return MaterialApp(
       title: 'Undangan Pernikahan Ojay & Mae',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(brightness: .dark, scaffoldBackgroundColor: GothicTheme.bgBlack),
-      home: InvitationScreen(recipientName: resolvedRecipient),
+      onGenerateInitialRoutes: (initialRoute) => [
+        _buildInvitationRoute(RouteSettings(name: _normalizeRouteName(initialRoute))),
+      ],
+      onGenerateRoute: _buildInvitationRoute,
     );
   }
 }
@@ -1242,7 +1345,6 @@ class _RsvpSectionState()
   static const String _collectionName = 'rsvps';
   static const String _sessionsCollectionName = 'rsvp_sessions';
   static const int _pageSize = 5;
-  static const Duration _refreshCooldown = Duration(seconds: 10);
 
   List<_RsvpEntry> _localEntries = const [];
   List<_RsvpEntry> _remoteEntries = const [];
@@ -1262,6 +1364,8 @@ class _RsvpSectionState()
     ),
   );
   final ValueNotifier<int> _currentPage = ValueNotifier<int>(0);
+  final ValueNotifier<DateTime> _relativeClock = ValueNotifier<DateTime>(DateTime.now());
+  Timer? _relativeClockTimer;
 
   String? _resolvedRecipientLabel;
 
@@ -1327,6 +1431,7 @@ class _RsvpSectionState()
       totalCount: _totalRemoteCount,
       errorMessage: errorMessage,
     );
+    _syncRelativeClockTimer();
   }
 
   void _publishLocalState() {
@@ -1337,7 +1442,40 @@ class _RsvpSectionState()
       hasMore: false,
       totalCount: _localEntries.length,
     );
+    _syncRelativeClockTimer();
   }
+
+  static bool _hasRecentEntry(List<_RsvpEntry> entries, DateTime now) => entries.any((entry) {
+    final createdAt = entry.createdAt;
+    return createdAt != null && now.difference(createdAt) <= const Duration(hours: 24);
+  });
+
+  void _syncRelativeClockTimer() {
+    final now = DateTime.now();
+    if (!_hasRecentEntry(_boardState.value.entries, now)) {
+      _relativeClockTimer?.cancel();
+      _relativeClockTimer = null;
+      return;
+    }
+    _relativeClock.value = now;
+    _relativeClockTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      final tickNow = DateTime.now();
+      _relativeClock.value = tickNow;
+      if (!_hasRecentEntry(_boardState.value.entries, tickNow)) {
+        _relativeClockTimer?.cancel();
+        _relativeClockTimer = null;
+      }
+    });
+  }
+
+  static DateTime? _parseCreatedAt(Object? raw) => switch (raw) {
+    Timestamp ts => ts.toDate().toLocal(),
+    DateTime dt => dt.toLocal(),
+    String iso => DateTime.tryParse(iso)?.toLocal(),
+    int ms => DateTime.fromMillisecondsSinceEpoch(ms).toLocal(),
+    _ => null,
+  };
 
   static _RsvpEntry _mapFirestoreDoc(Map<String, Object?> data) {
     final rId = (data['recipientId'] as String?)?.trim() ?? '';
@@ -1350,6 +1488,7 @@ class _RsvpSectionState()
       recipientLabel: savedLabel.isNotEmpty ? savedLabel : rName,
       attendance: _AttendanceStatus.fromLabel(data['attendance'] as String?),
       message: (data['message'] as String?)?.trim() ?? '',
+      createdAt: _parseCreatedAt(data['createdAt']),
     );
   }
 
@@ -1373,22 +1512,15 @@ class _RsvpSectionState()
             recipientLabel: entry.recipientLabel,
             attendance: latestAttendanceByRecipientId[entry.recipientId]!,
             message: entry.message,
+            createdAt: entry.createdAt,
           )
         else
           entry,
     ];
   }
 
-  Future<void> _loadInitialRsvps({bool isRefresh = false}) async {
+  Future<void> _loadInitialRsvps() async {
     if (_isFetchingPage) return;
-
-    if (isRefresh) {
-      final lastFetch = _lastRemoteFetchAt;
-      if (lastFetch != null && DateTime.now().difference(lastFetch) < _refreshCooldown) {
-        _showSnackBar('Daftar ucapan baru saja diperbarui.');
-        return;
-      }
-    }
 
     _isFetchingPage = true;
     final previousState = _boardState.value;
@@ -1408,15 +1540,10 @@ class _RsvpSectionState()
       final col = ready ? _collection : null;
       if (col == null) {
         if (kIsWeb) {
-          if (isRefresh && previousState.entries.isNotEmpty) {
-            _publishRemoteState(isLoading: false);
-            _showSnackBar('Gagal terhubung ke server Firebase. Periksa koneksi atau konfigurasi Firebase.');
-          } else {
-            _publishRemoteState(
-              isLoading: false,
-              errorMessage: 'Gagal terhubung ke server Firebase. Periksa koneksi atau konfigurasi Firebase.',
-            );
-          }
+          _publishRemoteState(
+            isLoading: false,
+            errorMessage: 'Gagal terhubung ke server Firebase. Periksa koneksi atau konfigurasi Firebase.',
+          );
         }
         return;
       }
@@ -1430,7 +1557,7 @@ class _RsvpSectionState()
         _lastRemoteDoc = null;
         _hasMoreRemote = false;
         _totalRemoteCount = 0;
-        if (isRefresh) _currentPage.value = 0;
+        _currentPage.value = 0;
         _publishRemoteState(isLoading: false);
         return;
       }
@@ -1458,22 +1585,17 @@ class _RsvpSectionState()
         _hasMoreRemote = fetchedCount == null || fetchedCount > _remoteEntries.length;
       }
 
-      if (isRefresh) _currentPage.value = 0;
+      _currentPage.value = 0;
       _publishRemoteState(isLoading: false);
     } catch (error) {
       if (kDebugMode && kIsWeb) {
         debugPrint('Firestore _loadInitialRsvps failed: $error');
       }
       if (!mounted) return;
-      if (isRefresh && previousState.entries.isNotEmpty) {
-        _publishRemoteState(isLoading: false);
-        _showSnackBar('Gagal memperbarui ucapan. Periksa koneksi atau konfigurasi Firebase.');
-      } else {
-        _publishRemoteState(
-          isLoading: false,
-          errorMessage: 'Gagal memuat ucapan dari server. Periksa koneksi atau aturan Firestore.',
-        );
-      }
+      _publishRemoteState(
+        isLoading: false,
+        errorMessage: 'Gagal memuat ucapan dari server. Periksa koneksi atau aturan Firestore.',
+      );
     } finally {
       _isFetchingPage = false;
     }
@@ -1641,6 +1763,7 @@ class _RsvpSectionState()
         recipientLabel: recipientLabel,
         attendance: attendance,
         message: message,
+        createdAt: DateTime.now(),
       ),
       ..._localEntries,
     ]);
@@ -1724,6 +1847,7 @@ class _RsvpSectionState()
           recipientLabel: recipientLabel,
           attendance: attendance,
           message: message,
+          createdAt: DateTime.now(),
         );
         _remoteEntries = _syncLatestAttendance([newEntry, ..._remoteEntries]);
         if (_totalRemoteCount != null) {
@@ -1761,6 +1885,8 @@ class _RsvpSectionState()
 
   @override
   void dispose() {
+    _relativeClockTimer?.cancel();
+    _relativeClock.dispose();
     _boardState.dispose();
     _currentPage.dispose();
     super.dispose();
@@ -1787,8 +1913,8 @@ class _RsvpSectionState()
             child: _RsvpMessagesBoard(
               boardStateListenable: _boardState,
               currentPage: _currentPage,
+              relativeClock: _relativeClock,
               onPageChanged: _goToPage,
-              onRefresh: () => unawaited(_loadInitialRsvps(isRefresh: true)),
             ),
           ),
         ],
@@ -2005,8 +2131,8 @@ class _RsvpFormCardState() extends State<_RsvpFormCard> {
 class const _RsvpMessagesBoard({
   required final ValueListenable<_RsvpBoardState> boardStateListenable,
   required final ValueNotifier<int> currentPage,
+  required final ValueListenable<DateTime> relativeClock,
   required final ValueChanged<int> onPageChanged,
-  required final VoidCallback onRefresh,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -2015,8 +2141,8 @@ class const _RsvpMessagesBoard({
       builder: (context, boardState, _) => _RsvpListCard(
         boardState: boardState,
         currentPage: currentPage,
+        relativeClock: relativeClock,
         onPageChanged: onPageChanged,
-        onRefresh: onRefresh,
       ),
     );
   }
@@ -2025,8 +2151,8 @@ class const _RsvpMessagesBoard({
 class const _RsvpListCard({
   required final _RsvpBoardState boardState,
   required final ValueNotifier<int> currentPage,
+  required final ValueListenable<DateTime> relativeClock,
   required final ValueChanged<int> onPageChanged,
-  required final VoidCallback onRefresh,
 }) extends StatelessWidget {
   static const int _pageSize = _RsvpSectionState._pageSize;
   static const BoxDecoration _cardDecoration = BoxDecoration(
@@ -2056,39 +2182,25 @@ class const _RsvpListCard({
             final startIndex = math.min(safePage * _pageSize, items.length);
             final endIndex = math.min(startIndex + _pageSize, items.length);
 
-            final Widget? headerSection = boardState.isUsingFirestore
-                ? Padding(
-                    padding: const .only(bottom: 12),
-                    child: Column(
-                      mainAxisSize: .min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: .spaceBetween,
-                          children: [
-                            Text(
-                              totalCount != null
-                                  ? 'Ucapan & Doa ($totalCount)'
-                                  : 'Ucapan & Doa',
-                              style: GothicTheme.sans(
-                                size: 11.5,
-                                color: GothicTheme.textGrey,
-                                weight: .bold,
-                              ),
-                            ),
-                            _PaginationButton(
-                              icon: Icons.refresh_rounded,
-                              label: 'Muat Ulang',
-                              enabled: !boardState.isLoading,
-                              onTap: onRefresh,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        const Divider(color: Colors.white12, height: 1),
-                      ],
+            final Widget headerSection = Padding(
+              padding: const .only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: .stretch,
+                mainAxisSize: .min,
+                children: [
+                  Text(
+                    totalCount != null ? 'Ucapan & Doa ($totalCount)' : 'Ucapan & Doa',
+                    style: GothicTheme.sans(
+                      size: 11.5,
+                      color: GothicTheme.textGrey,
+                      weight: .bold,
                     ),
-                  )
-                : null;
+                  ),
+                  const SizedBox(height: 10),
+                  const Divider(color: Colors.white12, height: 1),
+                ],
+              ),
+            );
 
             final Widget? loadingBar = boardState.isLoading
                 ? const Padding(
@@ -2147,34 +2259,31 @@ class const _RsvpListCard({
                   )
                 : null;
 
-            final String? emptyStatusText = items.isEmpty
-                ? (boardState.isLoading
-                      ? 'Memuat ucapan & doa...'
-                      : (boardState.errorMessage ??
-                            (boardState.isUsingFirestore
-                                ? 'Belum ada ucapan & doa. Jadilah yang pertama mengirim!'
-                                : 'Belum ada ucapan & doa.')))
-                : null;
+            final String? statusMessage = boardState.isLoading
+                ? 'Memuat ucapan & doa...'
+                : boardState.errorMessage;
 
-            final Widget? emptyStateSection = emptyStatusText != null
-                ? Padding(
-                    padding: const .symmetric(vertical: 12),
-                    child: Text(
-                      emptyStatusText,
-                      textAlign: .center,
-                      style: GothicTheme.sans(size: 12, color: Colors.white54),
-                    ),
-                  )
+            final Widget? emptyStateSection = items.isEmpty
+                ? (statusMessage != null
+                      ? Padding(
+                          padding: const .symmetric(vertical: 12),
+                          child: Text(
+                            statusMessage,
+                            textAlign: .center,
+                            style: GothicTheme.sans(size: 12, color: Colors.white54),
+                          ),
+                        )
+                      : const _RsvpEmptyNotice())
                 : null;
 
             return Column(
               children: [
-                ?headerSection,
+                headerSection,
                 ?loadingBar,
                 ?emptyStateSection,
                 for (var i = startIndex; i < endIndex; i++) ...[
                   if (i > startIndex) const Divider(color: Colors.white12, height: 22),
-                  _RsvpItemTile(entry: items[i]),
+                  _RsvpItemTile(entry: items[i], relativeClock: relativeClock),
                 ],
                 ?paginationSection,
               ],
@@ -2186,7 +2295,47 @@ class const _RsvpListCard({
   }
 }
 
-class const _RsvpItemTile({required final _RsvpEntry entry}) extends StatelessWidget {
+class const _RsvpEmptyNotice() extends StatelessWidget {
+  static const TextStyle _titleStyle = TextStyle(
+    fontSize: 12.5,
+    color: GothicTheme.textGrey,
+    fontWeight: .w600,
+    height: 1.45,
+    letterSpacing: 0.2,
+  );
+  static const TextStyle _subtitleStyle = TextStyle(
+    fontSize: 11.5,
+    color: Colors.white54,
+    height: 1.45,
+    letterSpacing: 0.2,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: .symmetric(vertical: 20, horizontal: 8),
+      child: Column(
+        mainAxisSize: .min,
+        children: [
+          Icon(Icons.edit_note_rounded, size: 28, color: Colors.white38),
+          SizedBox(height: 8),
+          Text('Belum ada ucapan & doa.', textAlign: .center, style: _titleStyle),
+          SizedBox(height: 4),
+          Text(
+            'Belum ada tamu yang menulis ucapan dan doa. Jadilah yang pertama mengirim!',
+            textAlign: .center,
+            style: _subtitleStyle,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class const _RsvpItemTile({
+  required final _RsvpEntry entry,
+  required final ValueListenable<DateTime> relativeClock,
+}) extends StatelessWidget {
   static const BoxDecoration _attendingBadgeDecoration = BoxDecoration(
     color: GothicTheme.white,
     borderRadius: .all(.circular(12)),
@@ -2217,6 +2366,12 @@ class const _RsvpItemTile({required final _RsvpEntry entry}) extends StatelessWi
     height: 1.4,
     letterSpacing: 0.2,
   );
+  static const TextStyle _timestampStyle = TextStyle(
+    fontSize: 10.5,
+    color: Colors.white54,
+    height: 1.4,
+    letterSpacing: 0.2,
+  );
   static const TextStyle _badgeAttendingTextStyle = TextStyle(
     fontSize: 10,
     color: GothicTheme.bgBlack,
@@ -2237,11 +2392,41 @@ class const _RsvpItemTile({required final _RsvpEntry entry}) extends StatelessWi
     final label = (entry.recipientLabel.isNotEmpty ? entry.recipientLabel : entry.recipientName)
         .trim();
     final isAttending = entry.attendance == .attending;
+    final createdAt = entry.createdAt;
+    final currentClock = relativeClock.value;
+    final isWithin24Hours =
+        createdAt != null && currentClock.difference(createdAt) <= const Duration(hours: 24);
 
     final Widget? recipientSubtitle = label.isNotEmpty
         ? Padding(
             padding: const .only(top: 2),
             child: Text('Undangan: $label', style: _recipientLabelStyle),
+          )
+        : null;
+
+    final Widget? timestampFooter = createdAt != null
+        ? Padding(
+            padding: const .only(top: 6),
+            child: Row(
+              mainAxisSize: .min,
+              children: [
+                const Icon(Icons.schedule_rounded, size: 11.5, color: Colors.white54),
+                const SizedBox(width: 4),
+                if (isWithin24Hours)
+                  ValueListenableBuilder<DateTime>(
+                    valueListenable: relativeClock,
+                    builder: (context, now, _) => Text(
+                      OjayMaeWeddingApp.formatRsvpTimestamp(createdAt, now: now),
+                      style: _timestampStyle,
+                    ),
+                  )
+                else
+                  Text(
+                    OjayMaeWeddingApp.formatRsvpTimestamp(createdAt, now: currentClock),
+                    style: _timestampStyle,
+                  ),
+              ],
+            ),
           )
         : null;
 
@@ -2276,6 +2461,7 @@ class const _RsvpItemTile({required final _RsvpEntry entry}) extends StatelessWi
         ),
         const SizedBox(height: 6),
         Text(entry.message, style: _messageStyle),
+        ?timestampFooter,
       ],
     );
   }

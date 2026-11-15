@@ -79,8 +79,15 @@ void main() {
     await tester.tap(find.text('RSVP'));
     await _pumpFrames(tester, steps: 20, stepMs: 100);
 
-    // Starts empty with no dummy RSVPs and no pagination controls
+    // Starts empty with no dummy RSVPs, no reload button, and no pagination controls
+    expect(find.text('Muat Ulang'), findsNothing);
+    expect(find.byIcon(Icons.refresh_rounded), findsNothing);
+    expect(find.text('Ucapan & Doa (0)'), findsOneWidget);
     expect(find.text('Belum ada ucapan & doa.'), findsOneWidget);
+    expect(
+      find.text('Belum ada tamu yang menulis ucapan dan doa. Jadilah yang pertama mengirim!'),
+      findsOneWidget,
+    );
     expect(find.text('Selanjutnya'), findsNothing);
 
     // Submit with empty message shows validation snackbar
@@ -103,10 +110,17 @@ void main() {
     await tester.tap(find.text('Kirim Konfirmasi'));
     await _pumpFrames(tester, steps: 10, stepMs: 60);
 
+    expect(find.text('Ucapan & Doa (1)'), findsOneWidget);
     expect(find.text('Belum ada ucapan & doa.'), findsNothing);
+    expect(
+      find.text('Belum ada tamu yang menulis ucapan dan doa. Jadilah yang pertama mengirim!'),
+      findsNothing,
+    );
     expect(find.text('Semoga sakinah mawaddah warahmah!'), findsOneWidget);
     expect(find.text('Undangan: Rina'), findsOneWidget);
     expect(find.text('Masih Ragu'), findsNWidgets(2));
+    expect(find.byIcon(Icons.schedule_rounded), findsOneWidget);
+    expect(find.textContaining(RegExp(r'^\d+ detik yang lalu$')), findsOneWidget);
   });
 
   testWidgets('RSVP multi-submission syncs attendance and updates pagination cleanly', (
@@ -328,5 +342,98 @@ void main() {
     expect(engine.progress, 0.0);
 
     engine.dispose();
+  });
+
+  testWidgets('Handles initial route with query parameters without route error', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.defaultRouteNameTestValue = '/?to=Faiq';
+    addTearDown(() {
+      tester.platformDispatcher.clearDefaultRouteNameTestValue();
+      tester.view.reset();
+    });
+
+    await tester.pumpWidget(const OjayMaeWeddingApp());
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(InvitationScreen), findsOneWidget);
+    expect(find.text('Faiq'), findsOneWidget);
+
+    final route = ModalRoute.of(tester.element(find.byType(InvitationScreen)));
+    expect(route?.settings.name, '/?to=Faiq');
+  });
+
+  testWidgets('Handles initial route with slashes in query and custom path as single route', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.defaultRouteNameTestValue = '/undangan?kepada=Bapak/Ibu';
+    addTearDown(() {
+      tester.platformDispatcher.clearDefaultRouteNameTestValue();
+      tester.view.reset();
+    });
+
+    await tester.pumpWidget(const OjayMaeWeddingApp());
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(InvitationScreen), findsOneWidget);
+    expect(find.text('Bapak/Ibu'), findsOneWidget);
+
+    final route = ModalRoute.of(tester.element(find.byType(InvitationScreen)));
+    expect(route?.settings.name, '/undangan?kepada=Bapak/Ibu');
+  });
+
+  test('resolveRecipientName handles query, fragment query, and malformed percent encoding', () {
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?to=Faiq')), 'Faiq');
+    expect(
+      OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/#/?kepada=Siti%20Aminah')),
+      'Siti Aminah',
+    );
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?to=Who?')), 'Who?');
+    expect(OjayMaeWeddingApp.resolveRecipientName(Uri.parse('/?to=100%')), '100%');
+  });
+
+  test('formatRsvpTimestamp formats <= 24h relatively and > 24h as date-time', () {
+    final now = DateTime(2026, 11, 15, 11, 30, 0);
+
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.add(const Duration(seconds: 5)), now: now),
+      '1 detik yang lalu',
+    );
+    expect(OjayMaeWeddingApp.formatRsvpTimestamp(now, now: now), '1 detik yang lalu');
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.subtract(const Duration(seconds: 45)), now: now),
+      '45 detik yang lalu',
+    );
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.subtract(const Duration(minutes: 1)), now: now),
+      '1 menit yang lalu',
+    );
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.subtract(const Duration(minutes: 59)), now: now),
+      '59 menit yang lalu',
+    );
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.subtract(const Duration(hours: 1)), now: now),
+      '1 jam yang lalu',
+    );
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.subtract(const Duration(hours: 24)), now: now),
+      '24 jam yang lalu',
+    );
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(
+        now.subtract(const Duration(hours: 24, seconds: 1)),
+        now: now,
+      ),
+      '14 Nov 2026, 11:29',
+    );
+    expect(
+      OjayMaeWeddingApp.formatRsvpTimestamp(now.subtract(const Duration(days: 2)), now: now),
+      '13 Nov 2026, 11:30',
+    );
   });
 }
