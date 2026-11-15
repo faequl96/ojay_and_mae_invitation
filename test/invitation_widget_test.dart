@@ -63,7 +63,7 @@ void main() {
     expect(find.text('Terima Kasih'), findsOneWidget);
   });
 
-  testWidgets('RSVP form validation, submission, and pagination work without Firebase', (
+  testWidgets('RSVP form validation, submission, and empty state work without Firebase', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1280, 800);
@@ -79,17 +79,9 @@ void main() {
     await tester.tap(find.text('RSVP'));
     await _pumpFrames(tester, steps: 20, stepMs: 100);
 
-    // Pagination moves to page 2 and back to page 1
-    expect(find.text('Hal 1 / 2'), findsOneWidget);
-    await _centerOnScreen(tester, find.text('Selanjutnya'));
-    await tester.tap(find.text('Selanjutnya'));
-    await tester.pump();
-    expect(find.text('Hal 2 / 2'), findsOneWidget);
-
-    await _centerOnScreen(tester, find.text('Sebelumnya'));
-    await tester.tap(find.text('Sebelumnya'));
-    await tester.pump();
-    expect(find.text('Hal 1 / 2'), findsOneWidget);
+    // Starts empty with no dummy RSVPs and no pagination controls
+    expect(find.text('Belum ada ucapan & doa.'), findsOneWidget);
+    expect(find.text('Selanjutnya'), findsNothing);
 
     // Submit with empty message shows validation snackbar
     await _centerOnScreen(tester, find.text('Kirim Konfirmasi'));
@@ -111,8 +103,10 @@ void main() {
     await tester.tap(find.text('Kirim Konfirmasi'));
     await _pumpFrames(tester, steps: 10, stepMs: 60);
 
+    expect(find.text('Belum ada ucapan & doa.'), findsNothing);
     expect(find.text('Semoga sakinah mawaddah warahmah!'), findsOneWidget);
-    expect(find.text('Hal 1 / 2'), findsOneWidget);
+    expect(find.text('Undangan: Rina'), findsOneWidget);
+    expect(find.text('Masih Ragu'), findsNWidgets(2));
   });
 
   testWidgets('RSVP multi-submission syncs attendance and updates pagination cleanly', (
@@ -149,33 +143,37 @@ void main() {
     await submitEntry('Masih Ragu', 'Ucapan pertama dari Rina');
     expect(find.text('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.'), findsOneWidget);
     expect(find.text('Ucapan pertama dari Rina'), findsOneWidget);
-    expect(find.text('Keluarga Besar Pak Budi'), findsOneWidget);
-    // 1 chip + 1st Rina entry + Budi Santoso entry = 3 'Masih Ragu' widgets on page 1
-    expect(find.text('Masih Ragu'), findsNWidgets(3));
+    // 1 chip + 1st Rina entry = 2 'Masih Ragu' widgets
+    expect(find.text('Masih Ragu'), findsNWidgets(2));
 
     // Second submission from same recipient changes attendance to 'Tidak Hadir'
     await submitEntry('Tidak Hadir', 'Ucapan kedua dari Rina');
     expect(find.text('Ucapan kedua dari Rina'), findsOneWidget);
     // 1st Rina entry synced to 'Tidak Hadir'; 'Masih Ragu' remains only on the form chip
     expect(find.text('Masih Ragu'), findsOneWidget);
+    expect(find.text('Tidak Hadir'), findsNWidgets(3));
 
-    // Add 2 more entries (total 7 + 4 = 11 items -> 3 pages)
+    // Add 4 more entries (total 6 items -> 2 pages of 5 + 1)
     await submitEntry('Hadir', 'Ucapan ketiga dari Rina');
     await submitEntry('Hadir', 'Ucapan keempat dari Rina');
+    await submitEntry('Hadir', 'Ucapan kelima dari Rina');
+    await submitEntry('Hadir', 'Ucapan keenam dari Rina');
 
-    await _centerOnScreen(tester, find.text('Hal 1 / 3'));
-    expect(find.text('Hal 1 / 3'), findsOneWidget);
-
-    await _centerOnScreen(tester, find.text('Selanjutnya'));
-    await tester.tap(find.text('Selanjutnya'));
-    await tester.pump();
-    expect(find.text('Hal 2 / 3'), findsOneWidget);
+    await _centerOnScreen(tester, find.text('Hal 1 / 2'));
+    expect(find.text('Hal 1 / 2'), findsOneWidget);
 
     await _centerOnScreen(tester, find.text('Selanjutnya'));
     await tester.tap(find.text('Selanjutnya'));
     await tester.pump();
-    await _centerOnScreen(tester, find.text('Hal 3 / 3', skipOffstage: false));
-    expect(find.text('Hal 3 / 3'), findsOneWidget);
+    await _centerOnScreen(tester, find.text('Hal 2 / 2', skipOffstage: false));
+    expect(find.text('Hal 2 / 2'), findsOneWidget);
+    expect(find.text('Ucapan pertama dari Rina'), findsOneWidget);
+
+    await _centerOnScreen(tester, find.text('Sebelumnya'));
+    await tester.tap(find.text('Sebelumnya'));
+    await tester.pump();
+    await _centerOnScreen(tester, find.text('Hal 1 / 2', skipOffstage: false));
+    expect(find.text('Hal 1 / 2'), findsOneWidget);
   });
 
   testWidgets(

@@ -307,6 +307,7 @@ final class const _RsvpBoardState({
   required final bool isLoading,
   required final bool hasMore,
   final int? totalCount,
+  final String? errorMessage,
 });
 
 // ============================================================================
@@ -1243,68 +1244,7 @@ class _RsvpSectionState()
   static const int _pageSize = 5;
   static const Duration _refreshCooldown = Duration(seconds: 10);
 
-  static const List<_RsvpEntry> _dummyRsvps = [
-    _RsvpEntry(
-      recipientId: 'rizky_pratama_dev02',
-      name: 'Dimas (Sepupu Rizky)',
-      recipientName: 'Rizky Pratama',
-      recipientLabel: 'Rizky Pratama+1',
-      attendance: .attending,
-      message:
-          'Selamat Ojay & Mae! Ikut hadir bareng rombongan Rizky ya, semoga lancar sampai hari H!',
-    ),
-    _RsvpEntry(
-      recipientId: 'rizky_pratama_dev01',
-      name: 'Rizky & Nadya',
-      recipientName: 'Rizky Pratama',
-      recipientLabel: 'Rizky Pratama',
-      attendance: .attending,
-      message: 'Selamat menempuh hidup baru Ojay & Mae! Semoga menjadi keluarga yang sakinah, mawaddah, warahmah.',
-    ),
-    _RsvpEntry(
-      recipientId: 'dinda_lestari_dev02',
-      name: 'Dinda Lestari',
-      recipientName: 'Dinda Lestari',
-      recipientLabel: 'Dinda Lestari',
-      attendance: .attending,
-      message:
-          'Happy wedding Fauzi & Fitri! Lancar terus sampai hari H dan bahagia selalu selamanya.',
-    ),
-    _RsvpEntry(
-      recipientId: 'budi_santoso_dev03',
-      name: 'Keluarga Besar Pak Budi',
-      recipientName: 'Budi Santoso',
-      recipientLabel: 'Budi Santoso',
-      attendance: .uncertain,
-      message: 'Selamat ya bro Ojay! Semoga dilancarkan segala urusannya. Diusahakan hadir!',
-    ),
-    _RsvpEntry(
-      recipientId: 'siti_rahmawati_dev04',
-      name: 'Siti Rahmawati',
-      recipientName: 'Siti Rahmawati',
-      recipientLabel: 'Siti Rahmawati',
-      attendance: .notAttending,
-      message: 'Mohon maaf belum bisa hadir karena ada agenda di luar kota. Doa terbaik untuk Ojay & Mae!',
-    ),
-    _RsvpEntry(
-      recipientId: 'andi_wijaya_dev05',
-      name: 'Andi Wijaya & Istri',
-      recipientName: 'Andi Wijaya',
-      recipientLabel: 'Andi Wijaya',
-      attendance: .attending,
-      message: 'Selamat berbahagia Ojay & Mae! Semoga langgeng dunia akhirat.',
-    ),
-    _RsvpEntry(
-      recipientId: 'fajar_teman_smk_dev06',
-      name: 'Fajar Nugroho',
-      recipientName: 'Fajar (Teman SMK)',
-      recipientLabel: 'Fajar (Teman SMK)',
-      attendance: .attending,
-      message: 'Mantap Ojay! Akhirnya berlabuh juga. Sampai ketemu di hari bahagia bro!',
-    ),
-  ];
-
-  List<_RsvpEntry> _localEntries = _dummyRsvps;
+  List<_RsvpEntry> _localEntries = const [];
   List<_RsvpEntry> _remoteEntries = const [];
   QueryDocumentSnapshot<Map<String, dynamic>>? _lastRemoteDoc;
   bool _hasMoreRemote = false;
@@ -1312,13 +1252,13 @@ class _RsvpSectionState()
   bool _isFetchingPage = false;
   DateTime? _lastRemoteFetchAt;
 
-  late final ValueNotifier<_RsvpBoardState> _boardState = ValueNotifier<_RsvpBoardState>(
-    _RsvpBoardState(
-      entries: _localEntries,
+  final ValueNotifier<_RsvpBoardState> _boardState = ValueNotifier<_RsvpBoardState>(
+    const _RsvpBoardState(
+      entries: [],
       isUsingFirestore: false,
       isLoading: false,
       hasMore: false,
-      totalCount: _localEntries.length,
+      totalCount: 0,
     ),
   );
   final ValueNotifier<int> _currentPage = ValueNotifier<int>(0);
@@ -1366,13 +1306,14 @@ class _RsvpSectionState()
     await _loadInitialRsvps();
   }
 
-  void _publishRemoteState({required bool isLoading}) {
+  void _publishRemoteState({required bool isLoading, String? errorMessage}) {
     _boardState.value = _RsvpBoardState(
       entries: List.unmodifiable(_remoteEntries),
       isUsingFirestore: true,
       isLoading: isLoading,
       hasMore: _hasMoreRemote,
       totalCount: _totalRemoteCount,
+      errorMessage: errorMessage,
     );
   }
 
@@ -1433,7 +1374,7 @@ class _RsvpSectionState()
     if (isRefresh) {
       final lastFetch = _lastRemoteFetchAt;
       if (lastFetch != null && DateTime.now().difference(lastFetch) < _refreshCooldown) {
-        _showSuccessSnackBar('Daftar ucapan baru saja diperbarui.');
+        _showSnackBar('Daftar ucapan baru saja diperbarui.');
         return;
       }
     }
@@ -1442,7 +1383,7 @@ class _RsvpSectionState()
     final previousState = _boardState.value;
     _boardState.value = _RsvpBoardState(
       entries: previousState.entries,
-      isUsingFirestore: previousState.isUsingFirestore,
+      isUsingFirestore: true,
       isLoading: true,
       hasMore: previousState.hasMore,
       totalCount: previousState.totalCount,
@@ -1459,7 +1400,7 @@ class _RsvpSectionState()
         _hasMoreRemote = false;
         _totalRemoteCount = 0;
         if (isRefresh) _currentPage.value = 0;
-        _publishLocalState();
+        _publishRemoteState(isLoading: false);
         return;
       }
 
@@ -1486,10 +1427,14 @@ class _RsvpSectionState()
       _publishRemoteState(isLoading: false);
     } catch (_) {
       if (!mounted) return;
-      if (isRefresh && previousState.isUsingFirestore) {
+      if (isRefresh && previousState.entries.isNotEmpty) {
         _publishRemoteState(isLoading: false);
+        _showSnackBar('Gagal memperbarui ucapan. Periksa koneksi atau konfigurasi Firebase.');
       } else {
-        _publishLocalState();
+        _publishRemoteState(
+          isLoading: false,
+          errorMessage: 'Gagal memuat ucapan dari server. Periksa koneksi atau aturan Firestore.',
+        );
       }
     } finally {
       _isFetchingPage = false;
@@ -1681,7 +1626,7 @@ class _RsvpSectionState()
         attendance: attendance,
         message: message,
       );
-      _showSuccessSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.');
+      _showSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.');
       return true;
     }
 
@@ -1736,24 +1681,16 @@ class _RsvpSectionState()
       _currentPage.value = 0;
       _publishRemoteState(isLoading: false);
 
-      _showSuccessSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.');
+      _showSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.');
       return true;
     } catch (_) {
       if (!mounted) return false;
-      _applyLocalRsvp(
-        recipientId: recipientId,
-        name: name,
-        recipientName: recipientName,
-        recipientLabel: recipientLabel,
-        attendance: attendance,
-        message: message,
-      );
-      _showSuccessSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil ditambahkan.');
-      return true;
+      _showSnackBar('Gagal mengirim ucapan. Periksa koneksi atau konfigurasi Firebase.');
+      return false;
     }
   }
 
-  void _showSuccessSnackBar(String text) {
+  void _showSnackBar(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: GothicTheme.white,
@@ -2141,10 +2078,31 @@ class const _RsvpListCard({
                   )
                 : null;
 
+            final String? emptyStatusText = items.isEmpty
+                ? (boardState.isLoading
+                      ? 'Memuat ucapan & doa...'
+                      : (boardState.errorMessage ??
+                            (boardState.isUsingFirestore
+                                ? 'Belum ada ucapan & doa. Jadilah yang pertama mengirim!'
+                                : 'Belum ada ucapan & doa.')))
+                : null;
+
+            final Widget? emptyStateSection = emptyStatusText != null
+                ? Padding(
+                    padding: const .symmetric(vertical: 12),
+                    child: Text(
+                      emptyStatusText,
+                      textAlign: .center,
+                      style: GothicTheme.sans(size: 12, color: Colors.white54),
+                    ),
+                  )
+                : null;
+
             return Column(
               children: [
                 ?headerSection,
                 ?loadingBar,
+                ?emptyStateSection,
                 for (var i = startIndex; i < endIndex; i++) ...[
                   if (i > startIndex) const Divider(color: Colors.white12, height: 22),
                   _RsvpItemTile(entry: items[i]),
