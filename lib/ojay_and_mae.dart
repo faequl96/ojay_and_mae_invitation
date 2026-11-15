@@ -14,9 +14,17 @@ import 'package:ojay_and_mae_invitation/src/web_interop.dart';
 // ============================================================================
 abstract final class _DeviceIdentity._() {
   static const String _storageKey = 'ojay_mae_device_id';
+  static const String _labelPrefix = 'ojay_mae_label_';
+  static const String _attendancePrefix = 'ojay_mae_att_';
   static final RegExp _nonAlnumRegex = RegExp(r'[^a-z0-9]+');
   static final RegExp _edgeUnderscoreRegex = RegExp(r'^_+|_+$');
   static String? _cachedId;
+  static bool _isFreshDevice = false;
+
+  static bool get isFreshDevice {
+    deviceId;
+    return _isFreshDevice;
+  }
 
   static String get deviceId {
     final cached = _cachedId;
@@ -24,8 +32,10 @@ abstract final class _DeviceIdentity._() {
 
     final existing = WebInterop.getStorageItem(_storageKey);
     if (existing != null && existing.isNotEmpty) {
+      _isFreshDevice = false;
       return _cachedId = existing;
     }
+    _isFreshDevice = true;
     final generated = _generateRandomId();
     WebInterop.setStorageItem(_storageKey, generated);
     return _cachedId = generated;
@@ -39,6 +49,28 @@ abstract final class _DeviceIdentity._() {
         .replaceAll(_edgeUnderscoreRegex, '');
     final prefix = normalized.isNotEmpty ? normalized : 'guest';
     return '${prefix}_$deviceId';
+  }
+
+  static String? getCachedRecipientLabel(String recipientId) {
+    if (recipientId.isEmpty) return null;
+    final value = WebInterop.getStorageItem('$_labelPrefix$recipientId')?.trim();
+    return (value != null && value.isNotEmpty) ? value : null;
+  }
+
+  static void setCachedRecipientLabel(String recipientId, String label) {
+    if (recipientId.isEmpty || label.isEmpty) return;
+    WebInterop.setStorageItem('$_labelPrefix$recipientId', label);
+  }
+
+  static String? getLastSubmittedAttendance(String recipientId) {
+    if (recipientId.isEmpty) return null;
+    final value = WebInterop.getStorageItem('$_attendancePrefix$recipientId')?.trim();
+    return (value != null && value.isNotEmpty) ? value : null;
+  }
+
+  static void setLastSubmittedAttendance(String recipientId, String attendanceLabel) {
+    if (recipientId.isEmpty || attendanceLabel.isEmpty) return;
+    WebInterop.setStorageItem('$_attendancePrefix$recipientId', attendanceLabel);
   }
 
   static String _generateRandomId() {
@@ -267,6 +299,14 @@ final class const _RsvpEntry({
   required final String recipientLabel,
   required final _AttendanceStatus attendance,
   required final String message,
+});
+
+final class const _RsvpBoardState({
+  required final List<_RsvpEntry> entries,
+  required final bool isUsingFirestore,
+  required final bool isLoading,
+  required final bool hasMore,
+  final int? totalCount,
 });
 
 // ============================================================================
@@ -1200,6 +1240,8 @@ class _RsvpSectionState()
     with AutomaticKeepAliveClientMixin<_RsvpSection> {
   static const String _collectionName = 'rsvps';
   static const String _sessionsCollectionName = 'rsvp_sessions';
+  static const int _pageSize = 5;
+  static const Duration _refreshCooldown = Duration(seconds: 10);
 
   static const List<_RsvpEntry> _dummyRsvps = [
     _RsvpEntry(
@@ -1262,11 +1304,23 @@ class _RsvpSectionState()
     ),
   ];
 
-  final ValueNotifier<List<_RsvpEntry>> _localEntries = ValueNotifier<List<_RsvpEntry>>(
-    _dummyRsvps,
+  List<_RsvpEntry> _localEntries = _dummyRsvps;
+  List<_RsvpEntry> _remoteEntries = const [];
+  QueryDocumentSnapshot<Map<String, dynamic>>? _lastRemoteDoc;
+  bool _hasMoreRemote = false;
+  int? _totalRemoteCount;
+  bool _isFetchingPage = false;
+  DateTime? _lastRemoteFetchAt;
+
+  late final ValueNotifier<_RsvpBoardState> _boardState = ValueNotifier<_RsvpBoardState>(
+    _RsvpBoardState(
+      entries: _localEntries,
+      isUsingFirestore: false,
+      isLoading: false,
+      hasMore: false,
+      totalCount: _localEntries.length,
+    ),
   );
-  final ValueNotifier<Stream<QuerySnapshot<Map<String, dynamic>>>?> _rsvpStream =
-      ValueNotifier<Stream<QuerySnapshot<Map<String, dynamic>>>?>(null);
   final ValueNotifier<int> _currentPage = ValueNotifier<int>(0);
 
   String? _resolvedRecipientLabel;
@@ -1303,45 +1357,244 @@ class _RsvpSectionState()
     super.didUpdateWidget(oldWidget);
     if (oldWidget.defaultName != widget.defaultName) {
       _resolvedRecipientLabel = null;
-      unawaited(_registerRecipientVisit());
     }
   }
 
   Future<void> _attachFirestore() async {
     final ready = await FirebaseBootstrap.ensureInitialized();
-    if (!mounted) return;
-    if (ready) {
-      _rsvpStream.value = _collection?.orderBy('createdAt', descending: true).snapshots();
-    }
-    await _registerRecipientVisit();
+    if (!mounted || !ready) return;
+    await _loadInitialRsvps();
   }
 
-  Future<String> _registerRecipientVisit() async {
+  void _publishRemoteState({required bool isLoading}) {
+    _boardState.value = _RsvpBoardState(
+      entries: List.unmodifiable(_remoteEntries),
+      isUsingFirestore: true,
+      isLoading: isLoading,
+      hasMore: _hasMoreRemote,
+      totalCount: _totalRemoteCount,
+    );
+  }
+
+  void _publishLocalState() {
+    _boardState.value = _RsvpBoardState(
+      entries: _localEntries,
+      isUsingFirestore: false,
+      isLoading: false,
+      hasMore: false,
+      totalCount: _localEntries.length,
+    );
+  }
+
+  static _RsvpEntry _mapFirestoreDoc(Map<String, Object?> data) {
+    final rId = (data['recipientId'] as String?)?.trim() ?? '';
+    final rName = (data['recipientName'] as String?)?.trim() ?? '';
+    final savedLabel = (data['recipientLabel'] as String?)?.trim() ?? '';
+    return _RsvpEntry(
+      recipientId: rId,
+      name: (data['name'] as String?)?.trim() ?? 'Tamu',
+      recipientName: rName,
+      recipientLabel: savedLabel.isNotEmpty ? savedLabel : rName,
+      attendance: _AttendanceStatus.fromLabel(data['attendance'] as String?),
+      message: (data['message'] as String?)?.trim() ?? '',
+    );
+  }
+
+  static List<_RsvpEntry> _syncLatestAttendance(List<_RsvpEntry> entries) {
+    if (entries.isEmpty) return const [];
+    final latestAttendanceByRecipientId = <String, _AttendanceStatus>{};
+    for (final entry in entries) {
+      final rId = entry.recipientId;
+      if (rId.isNotEmpty && !latestAttendanceByRecipientId.containsKey(rId)) {
+        latestAttendanceByRecipientId[rId] = entry.attendance;
+      }
+    }
+    return [
+      for (final entry in entries)
+        if (entry.recipientId.isNotEmpty &&
+            latestAttendanceByRecipientId[entry.recipientId] != entry.attendance)
+          _RsvpEntry(
+            recipientId: entry.recipientId,
+            name: entry.name,
+            recipientName: entry.recipientName,
+            recipientLabel: entry.recipientLabel,
+            attendance: latestAttendanceByRecipientId[entry.recipientId]!,
+            message: entry.message,
+          )
+        else
+          entry,
+    ];
+  }
+
+  Future<void> _loadInitialRsvps({bool isRefresh = false}) async {
+    final col = _collection;
+    if (col == null || _isFetchingPage) return;
+
+    if (isRefresh) {
+      final lastFetch = _lastRemoteFetchAt;
+      if (lastFetch != null && DateTime.now().difference(lastFetch) < _refreshCooldown) {
+        _showSuccessSnackBar('Daftar ucapan baru saja diperbarui.');
+        return;
+      }
+    }
+
+    _isFetchingPage = true;
+    final previousState = _boardState.value;
+    _boardState.value = _RsvpBoardState(
+      entries: previousState.entries,
+      isUsingFirestore: previousState.isUsingFirestore,
+      isLoading: true,
+      hasMore: previousState.hasMore,
+      totalCount: previousState.totalCount,
+    );
+
+    try {
+      final snap = await col.orderBy('createdAt', descending: true).limit(_pageSize).get();
+      if (!mounted) return;
+      _lastRemoteFetchAt = DateTime.now();
+
+      if (snap.docs.isEmpty) {
+        _remoteEntries = const [];
+        _lastRemoteDoc = null;
+        _hasMoreRemote = false;
+        _totalRemoteCount = 0;
+        if (isRefresh) _currentPage.value = 0;
+        _publishLocalState();
+        return;
+      }
+
+      _remoteEntries = _syncLatestAttendance([
+        for (final doc in snap.docs) _mapFirestoreDoc(doc.data()),
+      ]);
+      _lastRemoteDoc = snap.docs.last;
+
+      if (snap.docs.length < _pageSize) {
+        _totalRemoteCount = snap.docs.length;
+        _hasMoreRemote = false;
+      } else {
+        int? fetchedCount;
+        try {
+          final countSnap = await col.count().get();
+          fetchedCount = countSnap.count;
+        } catch (_) {}
+        if (!mounted) return;
+        _totalRemoteCount = fetchedCount;
+        _hasMoreRemote = fetchedCount == null || fetchedCount > _remoteEntries.length;
+      }
+
+      if (isRefresh) _currentPage.value = 0;
+      _publishRemoteState(isLoading: false);
+    } catch (_) {
+      if (!mounted) return;
+      if (isRefresh && previousState.isUsingFirestore) {
+        _publishRemoteState(isLoading: false);
+      } else {
+        _publishLocalState();
+      }
+    } finally {
+      _isFetchingPage = false;
+    }
+  }
+
+  Future<void> _goToPage(int targetPage) async {
+    if (targetPage < 0) return;
+
+    final state = _boardState.value;
+    if (!state.isUsingFirestore) {
+      final totalPages = (_localEntries.length / _pageSize).ceil().clamp(1, 9999);
+      _currentPage.value = targetPage.clamp(0, totalPages - 1);
+      return;
+    }
+
+    final neededCount = (targetPage + 1) * _pageSize;
+    final knownTotal = _totalRemoteCount;
+    final alreadyLoaded =
+        _remoteEntries.length >= neededCount ||
+        !_hasMoreRemote ||
+        (knownTotal != null && _remoteEntries.length >= knownTotal);
+    if (alreadyLoaded) {
+      _currentPage.value = targetPage;
+      return;
+    }
+
+    final col = _collection;
+    final cursor = _lastRemoteDoc;
+    if (col == null || cursor == null || _isFetchingPage) return;
+
+    _isFetchingPage = true;
+    _publishRemoteState(isLoading: true);
+
+    try {
+      final nextSnap = await col
+          .orderBy('createdAt', descending: true)
+          .startAfterDocument(cursor)
+          .limit(_pageSize)
+          .get();
+      if (!mounted) return;
+
+      if (nextSnap.docs.isEmpty) {
+        _hasMoreRemote = false;
+        _totalRemoteCount = _remoteEntries.length;
+        final maxPage = ((_remoteEntries.length - 1) ~/ _pageSize).clamp(0, 9999);
+        _currentPage.value = targetPage.clamp(0, maxPage);
+      } else {
+        _lastRemoteDoc = nextSnap.docs.last;
+        _remoteEntries = _syncLatestAttendance([
+          ..._remoteEntries,
+          for (final doc in nextSnap.docs) _mapFirestoreDoc(doc.data()),
+        ]);
+        _hasMoreRemote =
+            nextSnap.docs.length == _pageSize &&
+            (_totalRemoteCount == null || _remoteEntries.length < _totalRemoteCount!);
+        if (!_hasMoreRemote) {
+          _totalRemoteCount = _remoteEntries.length;
+        }
+        _currentPage.value = targetPage;
+      }
+    } catch (_) {
+      // Abaikan kegagalan sementara; tetap pertahankan halaman dan cache yang sudah dimuat.
+    } finally {
+      _isFetchingPage = false;
+      if (mounted) _publishRemoteState(isLoading: false);
+    }
+  }
+
+  Future<String> _resolveRecipientLabelForSubmit() async {
     final recipientName = widget.defaultName.trim();
     if (recipientName.isEmpty) return '';
-    final cachedLabel = _resolvedRecipientLabel;
-    if (cachedLabel != null) return cachedLabel;
+
+    final cachedInMemory = _resolvedRecipientLabel;
+    if (cachedInMemory != null) return cachedInMemory;
 
     final recipientId = _DeviceIdentity.buildRecipientDeviceId(recipientName);
+    final cachedInStorage = _DeviceIdentity.getCachedRecipientLabel(recipientId);
+    if (cachedInStorage != null) {
+      return _resolvedRecipientLabel = cachedInStorage;
+    }
+
     final deviceId = _DeviceIdentity.deviceId;
     final normalizedRecipient = recipientName.toLowerCase();
 
-    await FirebaseBootstrap.ensureInitialized();
     final sessionsCol = _sessionsCollection;
     if (sessionsCol != null) {
       try {
-        final existingDoc = await sessionsCol.doc(recipientId).get();
-        if (existingDoc.exists) {
-          final savedLabel = (existingDoc.data()?['recipientLabel'] as String?)?.trim();
-          if (savedLabel != null && savedLabel.isNotEmpty) {
-            return _resolvedRecipientLabel = savedLabel;
+        if (!_DeviceIdentity.isFreshDevice) {
+          final existingDoc = await sessionsCol.doc(recipientId).get();
+          if (existingDoc.exists) {
+            final savedLabel = (existingDoc.data()?['recipientLabel'] as String?)?.trim();
+            if (savedLabel != null && savedLabel.isNotEmpty) {
+              _DeviceIdentity.setCachedRecipientLabel(recipientId, savedLabel);
+              return _resolvedRecipientLabel = savedLabel;
+            }
           }
         }
 
-        final sameRecipientDocs = await sessionsCol
+        // Gunakan agregasi .count() (1 read per 1.000 entri) alih-alih mengunduh semua dokumen sesi.
+        final countSnap = await sessionsCol
             .where('normalizedRecipient', isEqualTo: normalizedRecipient)
+            .count()
             .get();
-        final orderIndex = sameRecipientDocs.docs.length;
+        final orderIndex = countSnap.count ?? 0;
         final label = orderIndex == 0 ? recipientName : '$recipientName+$orderIndex';
 
         await sessionsCol.doc(recipientId).set({
@@ -1353,7 +1606,7 @@ class _RsvpSectionState()
           'recipientLabel': label,
           'openedAt': FieldValue.serverTimestamp(),
         });
-
+        _DeviceIdentity.setCachedRecipientLabel(recipientId, label);
         return _resolvedRecipientLabel = label;
       } catch (_) {}
     }
@@ -1368,8 +1621,9 @@ class _RsvpSectionState()
     if (recipientName.isEmpty) return '';
     final normalized = recipientName.toLowerCase();
     final seenRecipientIds = <String>[];
+    final source = _remoteEntries.isNotEmpty ? _remoteEntries : _localEntries;
 
-    for (final item in _localEntries.value.reversed) {
+    for (final item in source.reversed) {
       if (item.recipientName.trim().toLowerCase() == normalized) {
         if (item.recipientId.isNotEmpty && !seenRecipientIds.contains(item.recipientId)) {
           seenRecipientIds.add(item.recipientId);
@@ -1390,8 +1644,7 @@ class _RsvpSectionState()
     required _AttendanceStatus attendance,
     required String message,
   }) {
-    final current = _localEntries.value;
-    final updated = <_RsvpEntry>[
+    _localEntries = _syncLatestAttendance([
       _RsvpEntry(
         recipientId: recipientId,
         name: name,
@@ -1400,21 +1653,10 @@ class _RsvpSectionState()
         attendance: attendance,
         message: message,
       ),
-      for (final item in current)
-        if (item.recipientId == recipientId)
-          _RsvpEntry(
-            recipientId: item.recipientId,
-            name: item.name,
-            recipientName: item.recipientName,
-            recipientLabel: item.recipientLabel,
-            attendance: attendance,
-            message: item.message,
-          )
-        else
-          item,
-    ];
-    _localEntries.value = updated;
+      ..._localEntries,
+    ]);
     _currentPage.value = 0;
+    _publishLocalState();
   }
 
   Future<bool> _submitRsvp({
@@ -1425,7 +1667,7 @@ class _RsvpSectionState()
     final recipientName = widget.defaultName.trim();
     final recipientId = _DeviceIdentity.buildRecipientDeviceId(recipientName);
     final deviceId = _DeviceIdentity.deviceId;
-    final recipientLabel = await _registerRecipientVisit();
+    final recipientLabel = await _resolveRecipientLabelForSubmit();
 
     final col = _collection;
     if (col == null) {
@@ -1444,16 +1686,8 @@ class _RsvpSectionState()
     }
 
     try {
-      final db = FirebaseFirestore.instance;
-      final batch = db.batch();
-
-      final previousDocs = await col.where('recipientId', isEqualTo: recipientId).get();
-      for (final doc in previousDocs.docs) {
-        batch.update(doc.reference, {'attendance': attendance.label});
-      }
-
-      final newDocRef = col.doc();
-      batch.set(newDocRef, {
+      final previousAttendance = _DeviceIdentity.getLastSubmittedAttendance(recipientId);
+      final payload = <String, Object?>{
         'recipientId': recipientId,
         'deviceId': deviceId,
         'name': name,
@@ -1462,11 +1696,46 @@ class _RsvpSectionState()
         'attendance': attendance.label,
         'message': message,
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      };
 
-      await batch.commit();
+      // Hanya kueri & perbarui dokumen lama jika perangkat ini pernah mengirim dengan status berbeda.
+      if (previousAttendance != null && previousAttendance != attendance.label) {
+        final db = FirebaseFirestore.instance;
+        final batch = db.batch();
+        final previousDocs = await col.where('recipientId', isEqualTo: recipientId).get();
+        for (final doc in previousDocs.docs) {
+          if ((doc.data()['attendance'] as String?) != attendance.label) {
+            batch.update(doc.reference, {'attendance': attendance.label});
+          }
+        }
+        batch.set(col.doc(), payload);
+        await batch.commit();
+      } else {
+        await col.doc().set(payload);
+      }
+
+      _DeviceIdentity.setLastSubmittedAttendance(recipientId, attendance.label);
       if (!mounted) return false;
+
+      final newEntry = _RsvpEntry(
+        recipientId: recipientId,
+        name: name,
+        recipientName: recipientName,
+        recipientLabel: recipientLabel,
+        attendance: attendance,
+        message: message,
+      );
+      _remoteEntries = _syncLatestAttendance([newEntry, ..._remoteEntries]);
+      if (_totalRemoteCount != null) {
+        _totalRemoteCount = _totalRemoteCount! + 1;
+        _hasMoreRemote = _totalRemoteCount! > _remoteEntries.length;
+      } else if (!_hasMoreRemote) {
+        _totalRemoteCount = _remoteEntries.length;
+      }
+      _lastRemoteFetchAt = DateTime.now();
       _currentPage.value = 0;
+      _publishRemoteState(isLoading: false);
+
       _showSuccessSnackBar('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.');
       return true;
     } catch (_) {
@@ -1496,8 +1765,7 @@ class _RsvpSectionState()
 
   @override
   void dispose() {
-    _localEntries.dispose();
-    _rsvpStream.dispose();
+    _boardState.dispose();
     _currentPage.dispose();
     super.dispose();
   }
@@ -1521,9 +1789,10 @@ class _RsvpSectionState()
           ScrollReveal(
             delay: const Duration(milliseconds: 280),
             child: _RsvpMessagesBoard(
-              rsvpStreamListenable: _rsvpStream,
-              localEntriesListenable: _localEntries,
+              boardStateListenable: _boardState,
               currentPage: _currentPage,
+              onPageChanged: _goToPage,
+              onRefresh: () => unawaited(_loadInitialRsvps(isRefresh: true)),
             ),
           ),
         ],
@@ -1728,130 +1997,32 @@ class _RsvpFormCardState() extends State<_RsvpFormCard> {
 }
 
 class const _RsvpMessagesBoard({
-  required final ValueListenable<Stream<QuerySnapshot<Map<String, dynamic>>>?> rsvpStreamListenable,
-  required final ValueListenable<List<_RsvpEntry>> localEntriesListenable,
+  required final ValueListenable<_RsvpBoardState> boardStateListenable,
   required final ValueNotifier<int> currentPage,
-}) extends StatefulWidget {
-  @override
-  State<_RsvpMessagesBoard> createState() => _RsvpMessagesBoardState();
-}
-
-class _RsvpMessagesBoardState() extends State<_RsvpMessagesBoard> {
-  QuerySnapshot<Map<String, dynamic>>? _cachedSnapshot;
-  List<_RsvpEntry> _cachedEntries = const [];
-
-  List<_RsvpEntry> _entriesForSnapshot(QuerySnapshot<Map<String, dynamic>> snapshot) {
-    if (identical(_cachedSnapshot, snapshot)) return _cachedEntries;
-    _cachedSnapshot = snapshot;
-
-    final docs = snapshot.docs;
-    if (docs.isEmpty) return _cachedEntries = const [];
-
-    final latestAttendanceByRecipientId = <String, _AttendanceStatus>{};
-    for (final doc in docs) {
-      final data = doc.data();
-      final rId = (data['recipientId'] as String?)?.trim() ?? '';
-      if (rId.isNotEmpty && !latestAttendanceByRecipientId.containsKey(rId)) {
-        latestAttendanceByRecipientId[rId] = _AttendanceStatus.fromLabel(
-          data['attendance'] as String?,
-        );
-      }
-    }
-
-    // Pemetaan indeks kemunculan pertama per penerima secara O(N).
-    final recipientOrderByGroup = <String, Map<String, int>>{};
-    for (final doc in docs.reversed) {
-      final data = doc.data();
-      final rId = (data['recipientId'] as String?)?.trim() ?? '';
-      final rName = (data['recipientName'] as String?)?.trim() ?? '';
-      if (rId.isNotEmpty && rName.isNotEmpty) {
-        final group = recipientOrderByGroup.putIfAbsent(rName.toLowerCase(), () => <String, int>{});
-        group.putIfAbsent(rId, () => group.length);
-      }
-    }
-
-    return _cachedEntries = [
-      for (final doc in docs)
-        _mapFirestoreDoc(doc.data(), latestAttendanceByRecipientId, recipientOrderByGroup),
-    ];
-  }
-
-  static _RsvpEntry _mapFirestoreDoc(
-    Map<String, Object?> data,
-    Map<String, _AttendanceStatus> latestAttendanceByRecipientId,
-    Map<String, Map<String, int>> recipientOrderByGroup,
-  ) {
-    final rId = (data['recipientId'] as String?)?.trim() ?? '';
-    final rName = (data['recipientName'] as String?)?.trim() ?? '';
-    final savedLabel = (data['recipientLabel'] as String?)?.trim() ?? '';
-    final rawAttendance = _AttendanceStatus.fromLabel(data['attendance'] as String?);
-
-    var displayLabel = savedLabel;
-    if (displayLabel.isEmpty && rName.isNotEmpty) {
-      final idx = recipientOrderByGroup[rName.toLowerCase()]?[rId] ?? 0;
-      displayLabel = idx > 0 ? '$rName+$idx' : rName;
-    }
-
-    return _RsvpEntry(
-      recipientId: rId,
-      name: (data['name'] as String?)?.trim() ?? 'Tamu',
-      recipientName: rName,
-      recipientLabel: displayLabel,
-      attendance: latestAttendanceByRecipientId[rId] ?? rawAttendance,
-      message: (data['message'] as String?)?.trim() ?? '',
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<Stream<QuerySnapshot<Map<String, dynamic>>>?>(
-      valueListenable: widget.rsvpStreamListenable,
-      builder: (context, rsvpStream, _) {
-        if (rsvpStream == null) {
-          return _LocalRsvpFallback(
-            localEntriesListenable: widget.localEntriesListenable,
-            currentPage: widget.currentPage,
-          );
-        }
-
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: rsvpStream,
-          builder: (context, snapshot) {
-            final snapData = snapshot.data;
-            if (snapData == null || snapData.docs.isEmpty) {
-              return _LocalRsvpFallback(
-                localEntriesListenable: widget.localEntriesListenable,
-                currentPage: widget.currentPage,
-              );
-            }
-
-            final items = _entriesForSnapshot(snapData);
-            return _RsvpListCard(items: items, currentPage: widget.currentPage);
-          },
-        );
-      },
-    );
-  }
-}
-
-class const _LocalRsvpFallback({
-  required final ValueListenable<List<_RsvpEntry>> localEntriesListenable,
-  required final ValueNotifier<int> currentPage,
+  required final ValueChanged<int> onPageChanged,
+  required final VoidCallback onRefresh,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<_RsvpEntry>>(
-      valueListenable: localEntriesListenable,
-      builder: (context, entries, _) => _RsvpListCard(items: entries, currentPage: currentPage),
+    return ValueListenableBuilder<_RsvpBoardState>(
+      valueListenable: boardStateListenable,
+      builder: (context, boardState, _) => _RsvpListCard(
+        boardState: boardState,
+        currentPage: currentPage,
+        onPageChanged: onPageChanged,
+        onRefresh: onRefresh,
+      ),
     );
   }
 }
 
 class const _RsvpListCard({
-  required final List<_RsvpEntry> items,
+  required final _RsvpBoardState boardState,
   required final ValueNotifier<int> currentPage,
+  required final ValueChanged<int> onPageChanged,
+  required final VoidCallback onRefresh,
 }) extends StatelessWidget {
-  static const int _pageSize = 5;
+  static const int _pageSize = _RsvpSectionState._pageSize;
   static const BoxDecoration _cardDecoration = BoxDecoration(
     color: Color(0xFF0E0E0E),
     borderRadius: .all(.circular(20)),
@@ -1860,7 +2031,13 @@ class const _RsvpListCard({
 
   @override
   Widget build(BuildContext context) {
-    final totalPages = (items.length / _pageSize).ceil().clamp(1, 9999);
+    final items = boardState.entries;
+    final totalCount = boardState.totalCount;
+    final knownTotal = totalCount != null
+        ? math.max(totalCount, items.length)
+        : (boardState.hasMore ? items.length + 1 : items.length);
+    final totalPages = (knownTotal / _pageSize).ceil().clamp(1, 9999);
+    final hasKnownTotalPages = totalCount != null || !boardState.hasMore;
 
     return DecoratedBox(
       decoration: _cardDecoration,
@@ -1870,8 +2047,53 @@ class const _RsvpListCard({
           valueListenable: currentPage,
           builder: (context, page, _) {
             final safePage = page.clamp(0, totalPages - 1);
-            final startIndex = safePage * _pageSize;
+            final startIndex = math.min(safePage * _pageSize, items.length);
             final endIndex = math.min(startIndex + _pageSize, items.length);
+
+            final Widget? headerSection = boardState.isUsingFirestore
+                ? Padding(
+                    padding: const .only(bottom: 12),
+                    child: Column(
+                      mainAxisSize: .min,
+                      children: [
+                        Row(
+                          mainAxisAlignment: .spaceBetween,
+                          children: [
+                            Text(
+                              totalCount != null
+                                  ? 'Ucapan & Doa ($totalCount)'
+                                  : 'Ucapan & Doa',
+                              style: GothicTheme.sans(
+                                size: 11.5,
+                                color: GothicTheme.textGrey,
+                                weight: .bold,
+                              ),
+                            ),
+                            _PaginationButton(
+                              icon: Icons.refresh_rounded,
+                              label: 'Muat Ulang',
+                              enabled: !boardState.isLoading,
+                              onTap: onRefresh,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        const Divider(color: Colors.white12, height: 1),
+                      ],
+                    ),
+                  )
+                : null;
+
+            final Widget? loadingBar = boardState.isLoading
+                ? const Padding(
+                    padding: .only(bottom: 12),
+                    child: LinearProgressIndicator(
+                      minHeight: 2,
+                      color: GothicTheme.white,
+                      backgroundColor: Colors.white12,
+                    ),
+                  )
+                : null;
 
             final Widget? paginationSection = totalPages > 1
                 ? Column(
@@ -1887,14 +2109,16 @@ class const _RsvpListCard({
                             child: _PaginationButton(
                               icon: Icons.chevron_left_rounded,
                               label: 'Sebelumnya',
-                              enabled: safePage > 0,
-                              onTap: () => currentPage.value = safePage - 1,
+                              enabled: !boardState.isLoading && safePage > 0,
+                              onTap: () => onPageChanged(safePage - 1),
                             ),
                           ),
                           Padding(
                             padding: const .symmetric(horizontal: 6),
                             child: Text(
-                              'Hal ${safePage + 1} / $totalPages',
+                              hasKnownTotalPages
+                                  ? 'Hal ${safePage + 1} / $totalPages'
+                                  : 'Hal ${safePage + 1}',
                               style: GothicTheme.sans(
                                 size: 11,
                                 color: GothicTheme.textGrey,
@@ -1907,8 +2131,8 @@ class const _RsvpListCard({
                               icon: Icons.chevron_right_rounded,
                               label: 'Selanjutnya',
                               isTrailingIcon: true,
-                              enabled: safePage < totalPages - 1,
-                              onTap: () => currentPage.value = safePage + 1,
+                              enabled: !boardState.isLoading && safePage < totalPages - 1,
+                              onTap: () => onPageChanged(safePage + 1),
                             ),
                           ),
                         ],
@@ -1919,6 +2143,8 @@ class const _RsvpListCard({
 
             return Column(
               children: [
+                ?headerSection,
+                ?loadingBar,
                 for (var i = startIndex; i < endIndex; i++) ...[
                   if (i > startIndex) const Divider(color: Colors.white12, height: 22),
                   _RsvpItemTile(entry: items[i]),

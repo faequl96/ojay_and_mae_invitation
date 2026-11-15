@@ -115,6 +115,69 @@ void main() {
     expect(find.text('Hal 1 / 2'), findsOneWidget);
   });
 
+  testWidgets('RSVP multi-submission syncs attendance and updates pagination cleanly', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const OjayMaeWeddingApp(recipientName: 'Rina'));
+    await tester.pump();
+
+    await tester.tap(find.text('Buka Undangan'));
+    await _pumpFrames(tester, steps: 15, stepMs: 100);
+
+    await tester.tap(find.text('RSVP'));
+    await _pumpFrames(tester, steps: 20, stepMs: 100);
+
+    Future<void> submitEntry(String attendanceLabel, String text) async {
+      final chip = find.text(attendanceLabel).first;
+      await _centerOnScreen(tester, chip);
+      await tester.tap(chip);
+      await tester.pump();
+
+      final messageField = find.byType(EditableText).last;
+      await tester.enterText(messageField, text);
+      await tester.pump();
+
+      await _centerOnScreen(tester, find.text('Kirim Konfirmasi'));
+      await tester.tap(find.text('Kirim Konfirmasi'));
+      await _pumpFrames(tester, steps: 10, stepMs: 60);
+    }
+
+    await submitEntry('Masih Ragu', 'Ucapan pertama dari Rina');
+    expect(find.text('Terima kasih! Konfirmasi kehadiran & doa berhasil dikirim.'), findsOneWidget);
+    expect(find.text('Ucapan pertama dari Rina'), findsOneWidget);
+    expect(find.text('Keluarga Besar Pak Budi'), findsOneWidget);
+    // 1 chip + 1st Rina entry + Budi Santoso entry = 3 'Masih Ragu' widgets on page 1
+    expect(find.text('Masih Ragu'), findsNWidgets(3));
+
+    // Second submission from same recipient changes attendance to 'Tidak Hadir'
+    await submitEntry('Tidak Hadir', 'Ucapan kedua dari Rina');
+    expect(find.text('Ucapan kedua dari Rina'), findsOneWidget);
+    // 1st Rina entry synced to 'Tidak Hadir'; 'Masih Ragu' remains only on the form chip
+    expect(find.text('Masih Ragu'), findsOneWidget);
+
+    // Add 2 more entries (total 7 + 4 = 11 items -> 3 pages)
+    await submitEntry('Hadir', 'Ucapan ketiga dari Rina');
+    await submitEntry('Hadir', 'Ucapan keempat dari Rina');
+
+    await _centerOnScreen(tester, find.text('Hal 1 / 3'));
+    expect(find.text('Hal 1 / 3'), findsOneWidget);
+
+    await _centerOnScreen(tester, find.text('Selanjutnya'));
+    await tester.tap(find.text('Selanjutnya'));
+    await tester.pump();
+    expect(find.text('Hal 2 / 3'), findsOneWidget);
+
+    await _centerOnScreen(tester, find.text('Selanjutnya'));
+    await tester.tap(find.text('Selanjutnya'));
+    await tester.pump();
+    await _centerOnScreen(tester, find.text('Hal 3 / 3', skipOffstage: false));
+    expect(find.text('Hal 3 / 3'), findsOneWidget);
+  });
+
   testWidgets(
     'Cover morphs smoothly into bottom-right rotating DVD player with pause, play, and replay',
     (tester) async {
